@@ -160,7 +160,7 @@ def output_overlap_images(img1_path, img2_path, intersection_geom, output_dir):
                 height=data.shape[1],
                 width=data.shape[2],
                 count=src.count,
-                dtype=src.dtype,
+                dtype=src.dtypes[0],
                 crs=src.crs,
                 transform=out_transform,
                 nodata=src.nodata # 保留原始影像的NoData值
