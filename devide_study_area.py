@@ -5,6 +5,7 @@ from itertools import combinations
 import argparse
 from geopy.distance import geodesic
 import warnings
+from rasterio.transform import Affine, array_bounds # 导入 Affine 和 array_bounds
 
 # 忽略UserWarning，因为geopy在处理某些坐标时可能会发出关于精度的警告
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -29,21 +30,14 @@ def read_as_panchromatic_windowed(image_path, window=None):
 
         # 手动计算profile以匹配窗口（如果指定了窗口）
         if window:
-            # 计算新的 transform
-            # 获取原始影像的 transform
             original_transform = src.transform
-            # 计算新的 transform，基于窗口的左上角像素坐标
-            # 新的 transform 的 c (x_offset) 和 f (y_offset) 将是窗口左上角的地理坐标
-            # 注意：rasterio 的 transform 是 GDAL 格式 (c, a, b, f, d, e)
-            # 其中 c, f 是左上角坐标 (x_offset, y_offset)
-            # a, d 是像素宽度和高度 (x_pixel_size, y_pixel_size)
-            # b, e 是旋转参数 (通常为0)
+            
+            # 计算新的 transform
+            # 新的 transform 的左上角地理坐标 (x_offset, y_offset)
             new_transform_c = original_transform.c + window.col_off * original_transform.a + window.row_off * original_transform.b
             new_transform_f = original_transform.f + window.col_off * original_transform.d + window.row_off * original_transform.e
             
-            # 使用 rasterio.transform.from_origin 或手动构建 transform 对象
             # 构建一个新的 Affine 变换
-            from rasterio.transform import Affine
             transform = Affine(original_transform.a, original_transform.b, new_transform_c,
                                original_transform.d, original_transform.e, new_transform_f)
 
@@ -69,10 +63,20 @@ def read_as_panchromatic_windowed(image_path, window=None):
 def get_bounding_box(profile):
     """
     从影像的profile中获取其边界框 (minx, miny, maxx, maxy)。
+    兼容 profile 中不直接包含 'bounds' 键的情况。
     """
-    # rasterio的bounds属性直接提供了边界框
-    bounds = profile['bounds']
-    return bounds.left, bounds.bottom, bounds.right, bounds.top
+    if 'bounds' in profile:
+        bounds = profile['bounds']
+        return bounds.left, bounds.bottom, bounds.right, bounds.top
+    else:
+        # 如果 profile 不直接包含 'bounds'，则从 transform, width, height 计算
+        transform = profile['transform']
+        width = profile['width']
+        height = profile['height']
+        
+        # rasterio.transform.array_bounds 可以从这些信息计算边界
+        left, bottom, right, top = array_bounds(width, height, transform)
+        return left, bottom, right, top
 
 def calculate_overlap_size_m(bbox1, bbox2, crs1, crs2):
     """
@@ -93,20 +97,17 @@ def calculate_overlap_size_m(bbox1, bbox2, crs1, crs2):
         return None, None, None
 
     # 判断CRS是否是地理坐标系
+    # 注意：crs对象可能为None，需要先检查
     is_geographic1 = crs1.is_geographic if crs1 else False
     is_geographic2 = crs2.is_geographic if crs2 else False
 
     if is_geographic1 and is_geographic2:
         # 均为地理坐标系，使用测地线距离计算宽度和高度
-        # 计算宽度 (在中心纬度上的经度距离)
-        # 优化：取重叠区域的中间纬度来计算宽度，避免因地球曲率造成的误差
         middle_lat = (overlap_miny + overlap_maxy) / 2
         p1_width = (middle_lat, overlap_minx)
         p2_width = (middle_lat, overlap_maxx)
         overlap_width_m = geodesic(p1_width, p2_width).meters
 
-        # 计算高度 (在中心经度上的纬度距离)
-        # 优化：取重叠区域的中间经度来计算高度，避免因地球曲率造成的误差
         middle_lon = (overlap_minx + overlap_maxx) / 2
         p1_height = (overlap_miny, middle_lon)
         p2_height = (overlap_maxy, middle_lon)
@@ -133,16 +134,13 @@ def find_overlap(bbox1, bbox2, min_overlap_size_m, profile1, profile2):
         return None, None
 
     # 计算重叠区域的像素尺寸，使用第一个影像的分辨率进行估算
-    # 注意：这里仅为估算，实际提取时rasterio会根据实际情况调整
-    
-    # 转换为像素尺寸时，需要考虑地理坐标系和投影坐标系的区别
-    # 对于地理坐标系，简单除以度每像素的值不准确，这里只是一个粗略的像素估算
-    # 实际在extract_and_save_overlap中，rasterio会根据地理范围和影像的transform来确定窗口
-    
     if profile1['crs'].is_geographic:
         # 对于地理坐标系，计算 bbox 经纬度差值与影像总经纬度差值的比例，再乘以像素数
-        img1_total_width_deg = profile1['bounds'].right - profile1['bounds'].left
-        img1_total_height_deg = profile1['bounds'].top - profile1['bounds'].bottom
+        # 这里需要从 profile 手动计算影像的总范围
+        img1_total_left, img1_total_bottom, img1_total_right, img1_total_top = get_bounding_box(profile1)
+        
+        img1_total_width_deg = img1_total_right - img1_total_left
+        img1_total_height_deg = img1_total_top - img1_total_bottom
         
         # 避免除以零
         overlap_width_pixels = int((overlap_bbox[2] - overlap_bbox[0]) / img1_total_width_deg * profile1['width']) if img1_total_width_deg != 0 else 0
@@ -180,19 +178,10 @@ def extract_and_save_overlap(image_path, overlap_bbox, output_folder, output_suf
         panchromatic_data = np.mean(data, axis=0).astype(original_profile['dtype'])
 
         # 手动计算 profile 以匹配重叠区域
-        # 新的宽度和高度就是窗口的尺寸
         width = window.width
         height = window.height
 
-        # 获取原始影像的 transform
         original_transform = src.transform
-        # 计算新的 transform，基于窗口的左上角像素坐标
-        # 新的 transform 的 c (x_offset) 和 f (y_offset) 将是窗口左上角的地理坐标
-        # 注意：rasterio 的 transform 是 GDAL 格式 (c, a, b, f, d, e)
-        # 其中 c, f 是左上角坐标 (x_offset, y_offset)
-        # a, d 是像素宽度和高度 (x_pixel_size, y_pixel_size)
-        # b, e 是旋转参数 (通常为0)
-        from rasterio.transform import Affine
         transform = Affine(original_transform.a, original_transform.b, 
                            original_transform.c + window.col_off * original_transform.a + window.row_off * original_transform.b,
                            original_transform.d, original_transform.e, 
@@ -224,27 +213,33 @@ def process_images(input_folder, output_folder_pairs, output_folder_triples):
 
     image_files = [os.path.join(input_folder, f) for f in os.listdir(input_folder) if f.endswith('.tif')]
 
-    # 存储影像信息： (profile, 原始路径)
-    # 我们不再提前读取全部数据，而是在需要时按窗口读取
     image_info = []
     for img_path in image_files:
         try:
             with rasterio.open(img_path) as src:
-                image_info.append({'path': img_path, 'profile': src.profile.copy()})
+                # 复制 profile，并尝试添加 'bounds' 键，以确保 get_bounding_box 可以获取到
+                current_profile = src.profile.copy()
+                # 即使 src.profile 本身有 bounds 属性，它可能不在字典的键中，这里显式添加
+                # 如果 src.bounds 存在且可访问，就把它加到 profile 字典里
+                try:
+                    current_profile['bounds'] = src.bounds
+                except AttributeError:
+                    # 如果 src.bounds 不可用，我们会通过 transform 和 width/height 计算
+                    pass
+                image_info.append({'path': img_path, 'profile': current_profile})
             print(f"Successfully read metadata for {os.path.basename(img_path)}.")
         except rasterio.errors.RasterioIOError as e:
             print(f"Error reading metadata for {os.path.basename(img_path)}: {e}. Skipping this file.")
             continue
 
     # --- 寻找两两重叠区域 ---
-    print("\n--- Searching for pairwise overlapping regions (>= 3000m x 3000m) ---")
-    processed_pairs = set() # To avoid processing the same pair twice (img1, img2) vs (img2, img1)
+    print("\n--- Searching for pairwise overlapping regions (>= 5000m x 5000m) ---")
+    processed_pairs = set() 
     for i in range(len(image_info)):
         for j in range(i + 1, len(image_info)):
             img1_data = image_info[i]
             img2_data = image_info[j]
 
-            # Use a tuple of sorted paths to ensure uniqueness
             pair_key = tuple(sorted((img1_data['path'], img2_data['path'])))
             if pair_key in processed_pairs:
                 continue
@@ -257,12 +252,11 @@ def process_images(input_folder, output_folder_pairs, output_folder_triples):
                 bbox1, bbox2, img1_data['profile']['crs'], img2_data['profile']['crs']
             )
 
-            if overlap_bbox and overlap_width_m >= 3000 and overlap_height_m >= 3000:
+            if overlap_bbox and overlap_width_m >= 5000 and overlap_height_m >= 5000:
                 print(f"Found significant overlap between {os.path.basename(img1_data['path'])} and {os.path.basename(img2_data['path'])}")
                 print(f"  Overlap BBox (geographic): {overlap_bbox}")
                 print(f"  Approximate Overlap Size (m): {overlap_width_m:.2f}m x {overlap_height_m:.2f}m")
 
-                # 提取并保存重叠区域
                 extract_and_save_overlap(img1_data['path'], overlap_bbox, output_folder_pairs, f"overlap_{os.path.basename(img2_data['path']).replace('.tif', '')}", img1_data['profile'])
                 extract_and_save_overlap(img2_data['path'], overlap_bbox, output_folder_pairs, f"overlap_{os.path.basename(img1_data['path']).replace('.tif', '')}", img2_data['profile'])
             else:
@@ -272,7 +266,6 @@ def process_images(input_folder, output_folder_pairs, output_folder_triples):
     print("\n--- Searching for triple overlapping regions (>= 1000m x 1000m) ---")
     processed_triples = set()
     for img1_info, img2_info, img3_info in combinations(image_info, 3):
-        # Create a unique key for the triple
         triple_key = tuple(sorted((img1_info['path'], img2_info['path'], img3_info['path'])))
         if triple_key in processed_triples:
             continue
@@ -282,7 +275,6 @@ def process_images(input_folder, output_folder_pairs, output_folder_triples):
                   get_bounding_box(img2_info['profile']),
                   get_bounding_box(img3_info['profile'])]
         
-        # Calculate the intersection of all three bounding boxes
         overlap_minx = max(bbox[0] for bbox in bboxes)
         overlap_miny = max(bbox[1] for bbox in bboxes)
         overlap_maxx = min(bbox[2] for bbox in bboxes)
@@ -293,11 +285,9 @@ def process_images(input_folder, output_folder_pairs, output_folder_triples):
             continue
 
         crs_list = [img1_info['profile']['crs'], img2_info['profile']['crs'], img3_info['profile']['crs']]
-        
         is_any_geographic = any(crs.is_geographic for crs in crs_list if crs)
 
         if is_any_geographic:
-            # 均为地理坐标系，使用测地线距离计算宽度和高度
             middle_lat = (overlap_miny + overlap_maxy) / 2
             p1_width = (middle_lat, overlap_minx)
             p2_width = (middle_lat, overlap_maxx)
@@ -318,7 +308,6 @@ def process_images(input_folder, output_folder_pairs, output_folder_triples):
             print(f"  Overlap BBox (geographic): {overlap_bbox_triple}")
             print(f"  Approximate Overlap Size (m): {overlap_width_m:.2f}m x {overlap_height_m:.2f}m")
 
-            # 提取并保存三张影像的重叠区域
             extract_and_save_overlap(img1_info['path'], overlap_bbox_triple, output_folder_triples, f"triple_overlap_{os.path.basename(img2_info['path']).replace('.tif', '')}_{os.path.basename(img3_info['path']).replace('.tif', '')}", img1_info['profile'])
             extract_and_save_overlap(img2_info['path'], overlap_bbox_triple, output_folder_triples, f"triple_overlap_{os.path.basename(img1_info['path']).replace('.tif', '')}_{os.path.basename(img3_info['path']).replace('.tif', '')}", img2_info['profile'])
             extract_and_save_overlap(img3_info['path'], overlap_bbox_triple, output_folder_triples, f"triple_overlap_{os.path.basename(img1_info['path']).replace('.tif', '')}_{os.path.basename(img2_info['path']).replace('.tif', '')}", img3_info['profile'])
