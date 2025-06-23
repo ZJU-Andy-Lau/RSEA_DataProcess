@@ -87,7 +87,7 @@ def process_image_overlaps(image_folder, output_folder, min_overlap_size_meters=
                 print(f"发现符合要求的重叠：宽度 {overlap_width:.2f}m, 高度 {overlap_height:.2f}m")
 
                 # 创建输出文件夹
-                pair_output_dir = os.path.join(output_folder, f"{os.path.basename(img1_path).split('.')[:-1]}_{os.path.basename(img2_path).split('.')[:-1]}_overlap")
+                pair_output_dir = os.path.join(output_folder, f"{os.path.basename(img1_path).split('.tif')[0]}_{os.path.basename(img2_path).split('.tif')[0]}_overlap")
                 os.makedirs(pair_output_dir, exist_ok=True)
 
                 # 输出交集部分
@@ -150,7 +150,7 @@ def output_overlap_images(img1_path, img2_path, intersection_geom, output_dir):
             out_transform = src.window_transform(window)
 
             # 定义输出文件路径
-            output_filename = os.path.join(output_dir, f"{os.path.basename(img_path).split('.')[:-1]}_overlap.tif")
+            output_filename = os.path.join(output_dir, f"{os.path.basename(img_path).split('.tif')[0]}_overlap.tif")
 
             # 写入输出影像
             with rasterio.open(
