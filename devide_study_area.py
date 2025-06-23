@@ -182,7 +182,7 @@ if __name__ == "__main__":
 
 
     # 确保输出文件夹存在
-    os.makedirs(output_directory_pairsist_ok=True)
+    os.makedirs(output_directory_pairs,exist_ok=True)
 
     process_image_overlaps(input_directory,output_directory_pairs)
     print("所有重叠计算和输出任务完成！")
