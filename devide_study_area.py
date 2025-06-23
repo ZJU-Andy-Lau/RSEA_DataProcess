@@ -49,7 +49,7 @@ def get_image_data_polygon(image_path):
             image_polygons = []
             # transform=src.transform 将像素坐标转换为地理坐标
             # precision=0 可能会提高大尺寸影像的处理速度，因为它不尝试构建非常精细的几何
-            for geom, val in shapes(mask, transform=src.transform, connectivity=4, precision=0): # 增加precision参数
+            for geom, val in shapes(mask, transform=src.transform, connectivity=4):
                 if val == 255:  # 255 表示有效数据区域
                     # 对于多边形或多部分多边形，geom['coordinates']的结构不同
                     if geom['type'] == 'Polygon':
