@@ -1,320 +1,176 @@
 import rasterio
+from rasterio.windows import Window
+from shapely.geometry import box
+from shapely.ops import transform
+import pyproj
 import numpy as np
 import os
-from itertools import combinations
 import argparse
-from geopy.distance import geodesic
-import warnings
-from rasterio.transform import Affine, from_bounds, array_bounds # 导入 from_bounds
 
-# 忽略UserWarning，因为geopy在处理某些坐标时可能会发出关于精度的警告
-warnings.filterwarnings("ignore", category=UserWarning)
-
-def read_as_panchromatic_windowed(image_path, window=None):
+def get_image_geometry(image_path):
     """
-    读取多光谱影像的指定窗口，并将其转换为全色影像（简单地取所有波段的平均值）。
-    如果未指定窗口，则读取整个影像。
+    获取遥感影像的几何信息。
     """
     with rasterio.open(image_path) as src:
-        if window:
-            data = src.read(window=window)
-        else:
-            data = src.read()
+        crs = src.crs
+        transform_matrix = src.transform
+        bounds = src.bounds
+        width = src.width
+        height = src.height
+    return {'crs': crs, 'transform': transform_matrix, 'bounds': bounds, 'width': width, 'height': height}
 
-        # 检查是否所有波段都是空白（例如，在窗口外读取时）
-        if data.size == 0:
-            return None, None
-
-        # 计算所有波段的平均值作为全色影像
-        panchromatic_data = np.mean(data, axis=0).astype(src.profile['dtype'])
-
-        # 更新profile以匹配窗口（如果指定了窗口）
-        if window:
-            # 这里的 transform 和 width/height 应该与 src.window() 出来的 window 匹配
-            # rasterio.window() 返回的窗口对象本身有 transform 和 width/height 属性
-            # 我们可以直接使用这些来更新 profile，因为它们是相对于原影像的正确子集信息
-            
-            # 从窗口对象获取其自己的 transform 和尺寸
-            # 注意：window.transform 是相对于原始图像的窗口的地理变换
-            transform = src.window_transform(window) # 获取窗口的地理变换
-            width = window.width
-            height = window.height
-
-            profile = src.profile.copy()
-            profile.update({
-                'height': height,
-                'width': width,
-                'transform': transform,
-                'count': 1,  # 全色影像只有一个波段
-                'dtype': panchromatic_data.dtype
-            })
-        else:
-            profile = src.profile.copy()
-            profile.update(
-                count=1,  # 全色影像只有一个波段
-                dtype=panchromatic_data.dtype  # 更新数据类型
-            )
-        return panchromatic_data, profile
-
-def get_bounding_box(profile):
+def calculate_overlap_area(geom1, geom2, target_crs_meters):
     """
-    从影像的profile中获取其边界框 (minx, miny, maxx, maxy)。
-    兼容 profile 中不直接包含 'bounds' 键的情况。
+    计算两幅影像的重叠区域，并以米为单位返回重叠区域的宽度和高度。
     """
-    if 'bounds' in profile:
-        bounds = profile['bounds']
-        return bounds.left, bounds.bottom, bounds.right, bounds.top
-    else:
-        # 如果 profile 不直接包含 'bounds'，则从 transform, width, height 计算
-        transform = profile['transform']
-        width = profile['width']
-        height = profile['height']
-        
-        # rasterio.transform.array_bounds 可以从这些信息计算边界
-        left, bottom, right, top = array_bounds(width, height, transform)
-        return left, bottom, right, top
+    # 将两个几何对象转换为 Shapely box
+    bbox1 = box(geom1['bounds'].left, geom1['bounds'].bottom, geom1['bounds'].right, geom1['bounds'].top)
+    bbox2 = box(geom2['bounds'].left, geom2['bounds'].bottom, geom2['bounds'].right, geom2['bounds'].top)
 
-def calculate_overlap_size_m(bbox1, bbox2, crs1, crs2):
+    # 计算交集
+    intersection = bbox1.intersection(bbox2)
+
+    if intersection.is_empty:
+        return 0, 0, None
+
+    # 定义转换函数，将地理坐标转换为目标米制CRS
+    project_to_meters = pyproj.Transformer.from_crs(geom1['crs'], target_crs_meters, always_xy=True).transform
+
+    # 将交集区域转换为米制CRS
+    transformed_intersection = transform(project_to_meters, intersection)
+
+    # 计算重叠区域的宽度和高度（米）
+    minx, miny, maxx, maxy = transformed_intersection.bounds
+    overlap_width_meters = maxx - minx
+    overlap_height_meters = maxy - miny
+
+    return overlap_width_meters, overlap_height_meters, intersection
+
+def process_image_overlaps(image_folder, output_folder, min_overlap_size_meters=(5000, 5000)):
     """
-    计算两个边界框的重叠区域在地理上的宽度和高度（米），
-    根据CRS类型选择不同的距离计算方法。
+    处理文件夹中所有影像的重叠部分，筛选并输出符合要求的交集影像。
     """
-    minx1, miny1, maxx1, maxy1 = bbox1
-    minx2, miny2, maxx2, maxy2 = bbox2
+    # 获取所有tif影像文件
+    image_files = [os.path.join(image_folder, f) for f in os.listdir(image_folder) if f.endswith('.tif')]
 
-    # 计算重叠区域的地理坐标
-    overlap_minx = max(minx1, minx2)
-    overlap_miny = max(miny1, miny2)
-    overlap_maxx = min(maxx1, maxx2)
-    overlap_maxy = min(maxy1, maxy2)
+    if not image_files:
+        print("未找到任何tif格式的遥感影像。")
+        return
 
-    # 检查是否有重叠
-    if overlap_minx >= overlap_maxx or overlap_miny >= overlap_maxy:
-        return None, None, None
+    # 获取所有影像的几何信息
+    image_geometries = {f: get_image_geometry(f) for f in image_files}
 
-    # 判断CRS是否是地理坐标系
-    # 注意：crs对象可能为None，需要先检查
-    is_geographic1 = crs1.is_geographic if crs1 else False
-    is_geographic2 = crs2.is_geographic if crs2 else False
+    # 创建一个通用的米制CRS用于距离计算 (例如，UTM)
+    # 假设所有影像都在同一个半球，或者选择一个适合大部分区域的CRS
+    # 这里我们使用一个通用的UTM区域，实际应用中可能需要根据影像的具体位置选择
+    target_crs_meters = pyproj.CRS("EPSG:32649") # 示例：WGS 84 / UTM zone 49N
 
-    if is_geographic1 and is_geographic2:
-        # 均为地理坐标系，使用测地线距离计算宽度和高度
-        middle_lat = (overlap_miny + overlap_maxy) / 2
-        p1_width = (middle_lat, overlap_minx)
-        p2_width = (middle_lat, overlap_maxx)
-        overlap_width_m = geodesic(p1_width, p2_width).meters
+    processed_pairs = set() # 记录已处理的影像对，避免重复计算和处理
 
-        middle_lon = (overlap_minx + overlap_maxx) / 2
-        p1_height = (overlap_miny, middle_lon)
-        p2_height = (overlap_maxy, middle_lon)
-        overlap_height_m = geodesic(p1_height, p2_height).meters
-    else:
-        # 假设是投影坐标系或无法判断，直接计算差值
-        print("警告：CRS不是地理坐标系或无法识别，将直接计算坐标差值作为距离，请确保单位是米。")
-        overlap_width_m = overlap_maxx - overlap_minx
-        overlap_height_m = overlap_maxy - overlap_miny
+    for i in range(len(image_files)):
+        for j in range(i + 1, len(image_files)):
+            img1_path = image_files[i]
+            img2_path = image_files[j]
 
-    # 将重叠区域的地理坐标转换为 (minx, miny, maxx, maxy) 格式
-    overlap_bbox = (overlap_minx, overlap_miny, overlap_maxx, overlap_maxy)
-    return overlap_bbox, overlap_width_m, overlap_height_m
-
-def find_overlap(bbox1, bbox2, min_overlap_size_m, profile1, profile2):
-    """
-    计算两个边界框的重叠区域，并检查是否满足最小尺寸要求。
-    返回重叠区域的地理坐标 (min_overlap_x, min_overlap_y, max_overlap_x, max_overlap_y)
-    以及像素尺寸。
-    """
-    overlap_bbox, overlap_width_m, overlap_height_m = calculate_overlap_size_m(bbox1, bbox2, profile1['crs'], profile2['crs'])
-
-    if overlap_bbox is None:
-        return None, None
-
-    # 计算重叠区域的像素尺寸，使用第一个影像的分辨率进行估算
-    if profile1['crs'].is_geographic:
-        # 对于地理坐标系，计算 bbox 经纬度差值与影像总经纬度差值的比例，再乘以像素数
-        img1_total_left, img1_total_bottom, img1_total_right, img1_total_top = get_bounding_box(profile1)
-        
-        img1_total_width_deg = img1_total_right - img1_total_left
-        img1_total_height_deg = img1_total_top - img1_total_bottom
-        
-        # 避免除以零
-        overlap_width_pixels = int((overlap_bbox[2] - overlap_bbox[0]) / img1_total_width_deg * profile1['width']) if img1_total_width_deg != 0 else 0
-        overlap_height_pixels = int((overlap_bbox[3] - overlap_bbox[1]) / img1_total_height_deg * profile1['height']) if img1_total_height_deg != 0 else 0
-    else:
-        # 对于投影坐标系，直接用米除以像素分辨率
-        pixel_width_1 = abs(profile1['transform'].a)
-        pixel_height_1 = abs(profile1['transform'].e)
-        overlap_width_pixels = int(overlap_width_m / pixel_width_1) if pixel_width_1 != 0 else 0
-        overlap_height_pixels = int(overlap_height_m / pixel_height_1) if pixel_height_1 != 0 else 0
-
-
-    # 检查重叠区域尺寸是否满足要求
-    if overlap_width_m >= min_overlap_size_m and overlap_height_m >= min_overlap_size_m:
-        return overlap_bbox, (overlap_width_pixels, overlap_height_pixels)
-    else:
-        return None, None
-
-def extract_and_save_overlap(image_path, overlap_bbox, output_folder, output_suffix, original_profile):
-    """
-    从原始影像中提取重叠区域并保存为新的全色GeoTIFF文件。
-    """
-    minx, miny, maxx, maxy = overlap_bbox
-
-    with rasterio.open(image_path) as src:
-        # 使用窗口读取重叠区域数据
-        # rasterio.windows.from_bounds 能够根据地理坐标计算出对应的像素窗口
-        window = src.window(minx, miny, maxx, maxy)
-        data = src.read(window=window)
-        
-        if data.size == 0:
-            print(f"Warning: No data found for specified window in {os.path.basename(image_path)}. Skipping save.")
-            return
-            
-        # 将多光谱数据转换为全色
-        panchromatic_data = np.mean(data, axis=0).astype(original_profile['dtype'])
-
-        # 更新profile以匹配重叠区域
-        # 使用 src.window_transform 和 window.width/height 来获取精确的 transform 和尺寸
-        transform = src.window_transform(window)
-        width = window.width
-        height = window.height
-        
-        output_profile = original_profile.copy()
-        output_profile.update({
-            'height': height,
-            'width': width,
-            'transform': transform,
-            'count': 1,
-            'dtype': panchromatic_data.dtype
-        })
-
-        # 确保输出文件夹存在
-        os.makedirs(output_folder, exist_ok=True) # 确保子文件夹存在
-
-        output_filename = os.path.join(output_folder, f"{os.path.basename(image_path).replace('.tif', '')}_{output_suffix}.tif")
-        with rasterio.open(output_filename, 'w', **output_profile) as dst:
-            dst.write(panchromatic_data, 1)
-        print(f"Saved overlapping region to: {output_filename}")
-
-
-def process_images(input_folder, output_folder_root_pairs, output_folder_root_triples):
-    """
-    处理文件夹中的所有影像，查找两两和三三重叠区域。
-    """
-    os.makedirs(output_folder_root_pairs, exist_ok=True)
-    os.makedirs(output_folder_root_triples, exist_ok=True)
-
-    image_files = [os.path.join(input_folder, f) for f in os.listdir(input_folder) if f.endswith('.tif')]
-
-    image_info = []
-    for img_path in image_files:
-        try:
-            with rasterio.open(img_path) as src:
-                current_profile = src.profile.copy()
-                # 尝试将 src.bounds 添加到 profile 中，方便 get_bounding_box 使用
-                try:
-                    current_profile['bounds'] = src.bounds
-                except AttributeError:
-                    pass # 如果 src.bounds 不可用，get_bounding_box 会通过 transform 和 width/height 计算
-                image_info.append({'path': img_path, 'profile': current_profile})
-            print(f"Successfully read metadata for {os.path.basename(img_path)}.")
-        except rasterio.errors.RasterioIOError as e:
-            print(f"Error reading metadata for {os.path.basename(img_path)}: {e}. Skipping this file.")
-            continue
-
-    # --- 寻找两两重叠区域 ---
-    print("\n--- Searching for pairwise overlapping regions (>= 5000m x 5000m) ---")
-    processed_pairs = set() 
-    for i in range(len(image_info)):
-        for j in range(i + 1, len(image_info)):
-            img1_data = image_info[i]
-            img2_data = image_info[j]
-
-            pair_key = tuple(sorted((img1_data['path'], img2_data['path'])))
+            # 避免重复处理同一对影像（顺序不同）
+            pair_key = tuple(sorted((img1_path, img2_path)))
             if pair_key in processed_pairs:
                 continue
-            processed_pairs.add(pair_key)
 
-            bbox1 = get_bounding_box(img1_data['profile'])
-            bbox2 = get_bounding_box(img2_data['profile'])
+            geom1 = image_geometries[img1_path]
+            geom2 = image_geometries[img2_path]
 
-            overlap_bbox, overlap_width_m, overlap_height_m = calculate_overlap_size_m(
-                bbox1, bbox2, img1_data['profile']['crs'], img2_data['profile']['crs']
-            )
+            print(f"正在计算 {os.path.basename(img1_path)} 和 {os.path.basename(img2_path)} 的重叠...")
+            overlap_width, overlap_height, intersection_geom = calculate_overlap_area(geom1, geom2, target_crs_meters)
 
-            if overlap_bbox and overlap_width_m >= 5000 and overlap_height_m >= 5000:
-                print(f"Found significant overlap between {os.path.basename(img1_data['path'])} and {os.path.basename(img2_data['path'])}")
-                print(f"  Overlap BBox (geographic): {overlap_bbox}")
-                print(f"  Approximate Overlap Size (m): {overlap_width_m:.2f}m x {overlap_height_m:.2f}m")
+            if overlap_width >= min_overlap_size_meters[0] and overlap_height >= min_overlap_size_meters[1]:
+                print(f"发现符合要求的重叠：宽度 {overlap_width:.2f}m, 高度 {overlap_height:.2f}m")
 
-                # 为每对影像创建一个新的子文件夹
-                pair_folder_name = f"{os.path.basename(img1_data['path']).replace('.tif', '')}_vs_{os.path.basename(img2_data['path']).replace('.tif', '')}"
-                current_output_folder_pairs = os.path.join(output_folder_root_pairs, pair_folder_name)
-                
-                extract_and_save_overlap(img1_data['path'], overlap_bbox, current_output_folder_pairs, f"overlap_{os.path.basename(img2_data['path']).replace('.tif', '')}", img1_data['profile'])
-                extract_and_save_overlap(img2_data['path'], overlap_bbox, current_output_folder_pairs, f"overlap_{os.path.basename(img1_data['path']).replace('.tif', '')}", img2_data['profile'])
+                # 创建输出文件夹
+                pair_output_dir = os.path.join(output_folder, f"{os.path.basename(img1_path).split('.')[0]}_{os.path.basename(img2_path).split('.')[0]}_overlap")
+                os.makedirs(pair_output_dir, exist_ok=True)
+
+                # 输出交集部分
+                output_overlap_images(img1_path, img2_path, intersection_geom, pair_output_dir)
+                processed_pairs.add(pair_key)
             else:
-                print(f"No significant overlap found between {os.path.basename(img1_data['path'])} and {os.path.basename(img2_data['path'])}")
+                print(f"重叠尺寸不满足要求：宽度 {overlap_width:.2f}m, 高度 {overlap_height:.2f}m")
 
-    # --- 尝试寻找三张影像重叠区域 ---
-    print("\n--- Searching for triple overlapping regions (>= 1000m x 1000m) ---")
-    processed_triples = set()
-    for img1_info, img2_info, img3_info in combinations(image_info, 3):
-        triple_key = tuple(sorted((img1_info['path'], img2_info['path'], img3_info['path'])))
-        if triple_key in processed_triples:
-            continue
-        processed_triples.add(triple_key)
+def output_overlap_images(img1_path, img2_path, intersection_geom, output_dir):
+    """
+    输出两张影像的交集部分，确保完全重叠且有正确的地理参考信息。
+    """
+    # 获取交集的边界 (地理坐标系)
+    minx, miny, maxx, maxy = intersection_geom.bounds
 
-        bboxes = [get_bounding_box(img1_info['profile']),
-                  get_bounding_box(img2_info['profile']),
-                  get_bounding_box(img3_info['profile'])]
-        
-        overlap_minx = max(bbox[0] for bbox in bboxes)
-        overlap_miny = max(bbox[1] for bbox in bboxes)
-        overlap_maxx = min(bbox[2] for bbox in bboxes)
-        overlap_maxy = min(bbox[3] for bbox in bboxes)
+    for img_path in [img1_path, img2_path]:
+        with rasterio.open(img_path) as src:
+            # 计算交集区域在当前影像中的窗口
+            window = src.window(minx, miny, maxx, maxy)
 
-        if overlap_minx >= overlap_maxx or overlap_miny >= overlap_maxy:
-            print(f"No triple overlap found for {os.path.basename(img1_info['path'])}, {os.path.basename(img2_info['path'])}, {os.path.basename(img3_info['path'])}")
-            continue
+            # 优化：大影像读取优化
+            # 仅读取窗口内的数据
+            # 将窗口转换为整数像素坐标，确保读取正确
+            window = Window(max(0, int(window.col_off)),
+                            max(0, int(window.row_off)),
+                            min(src.width - window.col_off, int(window.width)),
+                            min(src.height - window.row_off, int(window.height)))
 
-        crs_list = [img1_info['profile']['crs'], img2_info['profile']['crs'], img3_info['profile']['crs']]
-        is_any_geographic = any(crs.is_geographic for crs in crs_list if crs)
+            # 确保窗口有效且没有负值
+            if window.width <= 0 or window.height <= 0:
+                print(f"警告: 影像 {os.path.basename(img_path)} 的交集窗口无效，跳过输出。")
+                continue
 
-        if is_any_geographic:
-            middle_lat = (overlap_miny + overlap_maxy) / 2
-            p1_width = (middle_lat, overlap_minx)
-            p2_width = (middle_lat, overlap_maxx)
-            overlap_width_m = geodesic(p1_width, p2_width).meters
+            # 读取数据
+            # 考虑影像可能非常大，可以分块读取，这里先尝试直接读取窗口
+            # 如果内存不足，需要实现更精细的分块读取逻辑
+            try:
+                data = src.read(window=window)
+            except Exception as e:
+                print(f"读取影像 {os.path.basename(img_path)} 的窗口数据时发生错误: {e}")
+                print("尝试进行分块读取...")
+                # 简单分块示例，实际应用中需要更完善的循环和内存管理
+                block_size = 2048 # 每次读取的像素块大小
+                output_data = np.empty((src.count, int(window.height), int(window.width)), dtype=src.dtype)
 
-            middle_lon = (overlap_minx + overlap_maxx) / 2
-            p1_height = (overlap_miny, middle_lon)
-            p2_height = (overlap_maxy, middle_lon)
-            overlap_height_m = geodesic(p1_height, p2_height).meters
-        else:
-            print("警告：三张影像的CRS都不是地理坐标系或无法识别，将直接计算坐标差值作为距离，请确保单位是米。")
-            overlap_width_m = overlap_maxx - overlap_minx
-            overlap_height_m = overlap_maxy - overlap_miny
+                for b in range(src.count):
+                    for r_off in range(0, int(window.height), block_size):
+                        for c_off in range(0, int(window.width), block_size):
+                            current_window = Window(window.col_off + c_off,
+                                                    window.row_off + r_off,
+                                                    min(block_size, int(window.width) - c_off),
+                                                    min(block_size, int(window.height) - r_off))
+                            if current_window.width > 0 and current_window.height > 0:
+                                block_data = src.read(b + 1, window=current_window)
+                                output_data[b, r_off:r_off+block_data.shape[0], c_off:c_off+block_data.shape[1]] = block_data
+                data = output_data
 
-        if overlap_width_m >= 1000 and overlap_height_m >= 1000:
-            overlap_bbox_triple = (overlap_minx, overlap_miny, overlap_maxx, overlap_maxy)
-            print(f"Found significant triple overlap for {os.path.basename(img1_info['path'])}, {os.path.basename(img2_info['path'])}, {os.path.basename(img3_info['path'])}")
-            print(f"  Overlap BBox (geographic): {overlap_bbox_triple}")
-            print(f"  Approximate Overlap Size (m): {overlap_width_m:.2f}m x {overlap_height_m:.2f}m")
 
-            # 为每组三张影像创建一个新的子文件夹
-            triple_folder_name = f"{os.path.basename(img1_info['path']).replace('.tif', '')}_vs_{os.path.basename(img2_info['path']).replace('.tif', '')}_vs_{os.path.basename(img3_info['path']).replace('.tif', '')}"
-            current_output_folder_triples = os.path.join(output_folder_root_triples, triple_folder_name)
+            # 创建新的变换矩阵，使输出影像的左上角与交集的左上角对齐
+            out_transform = src.window_transform(window)
 
-            extract_and_save_overlap(img1_info['path'], overlap_bbox_triple, current_output_folder_triples, f"triple_overlap_{os.path.basename(img2_info['path']).replace('.tif', '')}_{os.path.basename(img3_info['path']).replace('.tif', '')}", img1_info['profile'])
-            extract_and_save_overlap(img2_info['path'], overlap_bbox_triple, current_output_folder_triples, f"triple_overlap_{os.path.basename(img1_info['path']).replace('.tif', '')}_{os.path.basename(img3_info['path']).replace('.tif', '')}", img2_info['profile'])
-            extract_and_save_overlap(img3_info['path'], overlap_bbox_triple, current_output_folder_triples, f"triple_overlap_{os.path.basename(img1_info['path']).replace('.tif', '')}_{os.path.basename(img2_info['path']).replace('.tif', '')}", img3_info['profile'])
-        else:
-            print(f"No significant triple overlap found for {os.path.basename(img1_info['path'])}, {os.path.basename(img2_info['path'])}, {os.path.basename(img3_info['path'])}")
+            # 定义输出文件路径
+            output_filename = os.path.join(output_dir, f"{os.path.basename(img_path).split('.')[0]}_overlap.tif")
+
+            # 写入输出影像
+            with rasterio.open(
+                output_filename,
+                'w',
+                driver='GTiff',
+                height=data.shape[1],
+                width=data.shape[2],
+                count=src.count,
+                dtype=src.dtype,
+                crs=src.crs,
+                transform=out_transform,
+                nodata=src.nodata # 保留原始影像的NoData值
+            ) as dst:
+                dst.write(data)
+        print(f"已生成交集影像: {output_filename}")
 
 
 if __name__ == "__main__":
-    # 配置输入和输出文件夹
+    # 示例用法
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', type=str,
                         help='path to all images needed adjustment in a folder')
@@ -322,8 +178,11 @@ if __name__ == "__main__":
 
     input_directory = os.path.join(options.root,'raw')
     output_directory_pairs = os.path.join(options.root,'pairs')
-    output_directory_triples = os.path.join(options.root,'triples')
+    # output_directory_triples = os.path.join(options.root,'triples')
 
-    process_images(input_directory, output_directory_pairs, output_directory_triples)
 
-    print("\n处理完成！请查看输出文件夹中的结果。")
+    # 确保输出文件夹存在
+    os.makedirs(output_directory_pairsist_ok=True)
+
+    process_image_overlaps(input_directory,output_directory_pairs)
+    print("所有重叠计算和输出任务完成！")
