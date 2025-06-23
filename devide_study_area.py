@@ -19,19 +19,37 @@ def read_as_panchromatic_windowed(image_path, window=None):
             data = src.read(window=window)
         else:
             data = src.read()
-        
+
         # 检查是否所有波段都是空白（例如，在窗口外读取时）
         if data.size == 0:
             return None, None
 
         # 计算所有波段的平均值作为全色影像
         panchromatic_data = np.mean(data, axis=0).astype(src.profile['dtype'])
-        
-        # 更新profile以匹配窗口（如果指定了窗口）
+
+        # 手动计算profile以匹配窗口（如果指定了窗口）
         if window:
-            transform, width, height = rasterio.windows.calculate_default_transform(
-                src.crs, src.transform, src.width, src.height, window=window
-            )
+            # 计算新的 transform
+            # 获取原始影像的 transform
+            original_transform = src.transform
+            # 计算新的 transform，基于窗口的左上角像素坐标
+            # 新的 transform 的 c (x_offset) 和 f (y_offset) 将是窗口左上角的地理坐标
+            # 注意：rasterio 的 transform 是 GDAL 格式 (c, a, b, f, d, e)
+            # 其中 c, f 是左上角坐标 (x_offset, y_offset)
+            # a, d 是像素宽度和高度 (x_pixel_size, y_pixel_size)
+            # b, e 是旋转参数 (通常为0)
+            new_transform_c = original_transform.c + window.col_off * original_transform.a + window.row_off * original_transform.b
+            new_transform_f = original_transform.f + window.col_off * original_transform.d + window.row_off * original_transform.e
+            
+            # 使用 rasterio.transform.from_origin 或手动构建 transform 对象
+            # 构建一个新的 Affine 变换
+            from rasterio.transform import Affine
+            transform = Affine(original_transform.a, original_transform.b, new_transform_c,
+                               original_transform.d, original_transform.e, new_transform_f)
+
+            width = window.width
+            height = window.height
+
             profile = src.profile.copy()
             profile.update({
                 'height': height,
@@ -74,32 +92,27 @@ def calculate_overlap_size_m(bbox1, bbox2, crs1, crs2):
     if overlap_minx >= overlap_maxx or overlap_miny >= overlap_maxy:
         return None, None, None
 
-    # 获取重叠区域的中心点（用于距离估算）和角点
-    center_x = (overlap_minx + overlap_maxx) / 2
-    center_y = (overlap_miny + overlap_maxy) / 2
-
     # 判断CRS是否是地理坐标系
     is_geographic1 = crs1.is_geographic if crs1 else False
     is_geographic2 = crs2.is_geographic if crs2 else False
 
-    # 这里我们假设如果两张影像的CRS都可用且都是地理坐标系，则使用测地线距离
-    # 否则，如果其中一个不是地理坐标系或者不可用，则按投影坐标系处理（直接计算差值）
-    # 实际应用中，如果CRS不匹配且其中一个是投影，可能需要更复杂的逻辑或警告用户
     if is_geographic1 and is_geographic2:
         # 均为地理坐标系，使用测地线距离计算宽度和高度
         # 计算宽度 (在中心纬度上的经度距离)
-        p1_width = (overlap_miny, overlap_minx)
-        p2_width = (overlap_miny, overlap_maxx)
+        # 优化：取重叠区域的中间纬度来计算宽度，避免因地球曲率造成的误差
+        middle_lat = (overlap_miny + overlap_maxy) / 2
+        p1_width = (middle_lat, overlap_minx)
+        p2_width = (middle_lat, overlap_maxx)
         overlap_width_m = geodesic(p1_width, p2_width).meters
 
         # 计算高度 (在中心经度上的纬度距离)
-        p1_height = (overlap_miny, overlap_minx)
-        p2_height = (overlap_maxy, overlap_minx)
+        # 优化：取重叠区域的中间经度来计算高度，避免因地球曲率造成的误差
+        middle_lon = (overlap_minx + overlap_maxx) / 2
+        p1_height = (overlap_miny, middle_lon)
+        p2_height = (overlap_maxy, middle_lon)
         overlap_height_m = geodesic(p1_height, p2_height).meters
     else:
         # 假设是投影坐标系或无法判断，直接计算差值
-        # 警告：这里假设单位是米，如果不是米，则结果不准确
-        # 在实际应用中，如果CRS是英尺等，需要进行单位转换
         print("警告：CRS不是地理坐标系或无法识别，将直接计算坐标差值作为距离，请确保单位是米。")
         overlap_width_m = overlap_maxx - overlap_minx
         overlap_height_m = overlap_maxy - overlap_miny
@@ -121,26 +134,26 @@ def find_overlap(bbox1, bbox2, min_overlap_size_m, profile1, profile2):
 
     # 计算重叠区域的像素尺寸，使用第一个影像的分辨率进行估算
     # 注意：这里仅为估算，实际提取时rasterio会根据实际情况调整
-    pixel_width_1 = abs(profile1['transform'].a)
-    pixel_height_1 = abs(profile1['transform'].e)
     
     # 转换为像素尺寸时，需要考虑地理坐标系和投影坐标系的区别
     # 对于地理坐标系，简单除以度每像素的值不准确，这里只是一个粗略的像素估算
     # 实际在extract_and_save_overlap中，rasterio会根据地理范围和影像的transform来确定窗口
     
-    # 尝试将米转换为像素，这是一个近似值，因为地理坐标系下像素不是等距的
-    # 对于地理坐标系，我们无法直接用米来计算像素，但可以在 extract_and_save_overlap 中通过 `src.window(minx, miny, maxx, maxy)` 让 rasterio 自动处理
-    # 这里的像素估算对于投影坐标系是准确的，对于地理坐标系则是一个粗略参考
     if profile1['crs'].is_geographic:
         # 对于地理坐标系，计算 bbox 经纬度差值与影像总经纬度差值的比例，再乘以像素数
         img1_total_width_deg = profile1['bounds'].right - profile1['bounds'].left
         img1_total_height_deg = profile1['bounds'].top - profile1['bounds'].bottom
         
+        # 避免除以零
         overlap_width_pixels = int((overlap_bbox[2] - overlap_bbox[0]) / img1_total_width_deg * profile1['width']) if img1_total_width_deg != 0 else 0
         overlap_height_pixels = int((overlap_bbox[3] - overlap_bbox[1]) / img1_total_height_deg * profile1['height']) if img1_total_height_deg != 0 else 0
     else:
-        overlap_width_pixels = int(overlap_width_m / pixel_width_1)
-        overlap_height_pixels = int(overlap_height_m / pixel_height_1)
+        # 对于投影坐标系，直接用米除以像素分辨率
+        pixel_width_1 = abs(profile1['transform'].a)
+        pixel_height_1 = abs(profile1['transform'].e)
+        overlap_width_pixels = int(overlap_width_m / pixel_width_1) if pixel_width_1 != 0 else 0
+        overlap_height_pixels = int(overlap_height_m / pixel_height_1) if pixel_height_1 != 0 else 0
+
 
     # 检查重叠区域尺寸是否满足要求
     if overlap_width_m >= min_overlap_size_m and overlap_height_m >= min_overlap_size_m:
@@ -156,8 +169,6 @@ def extract_and_save_overlap(image_path, overlap_bbox, output_folder, output_suf
 
     with rasterio.open(image_path) as src:
         # 使用窗口读取重叠区域数据
-        # rasterio.windows.from_bounds 能够根据地理坐标计算出对应的像素窗口
-        # 对于大影像，这种方式只加载需要的部分，大大节省内存
         window = src.window(minx, miny, maxx, maxy)
         data = src.read(window=window)
         
@@ -168,10 +179,24 @@ def extract_and_save_overlap(image_path, overlap_bbox, output_folder, output_suf
         # 将多光谱数据转换为全色
         panchromatic_data = np.mean(data, axis=0).astype(original_profile['dtype'])
 
-        # 更新profile以匹配重叠区域
-        transform, width, height = rasterio.windows.calculate_default_transform(
-            src.crs, src.transform, src.width, src.height, window=window
-        )
+        # 手动计算 profile 以匹配重叠区域
+        # 新的宽度和高度就是窗口的尺寸
+        width = window.width
+        height = window.height
+
+        # 获取原始影像的 transform
+        original_transform = src.transform
+        # 计算新的 transform，基于窗口的左上角像素坐标
+        # 新的 transform 的 c (x_offset) 和 f (y_offset) 将是窗口左上角的地理坐标
+        # 注意：rasterio 的 transform 是 GDAL 格式 (c, a, b, f, d, e)
+        # 其中 c, f 是左上角坐标 (x_offset, y_offset)
+        # a, d 是像素宽度和高度 (x_pixel_size, y_pixel_size)
+        # b, e 是旋转参数 (通常为0)
+        from rasterio.transform import Affine
+        transform = Affine(original_transform.a, original_transform.b, 
+                           original_transform.c + window.col_off * original_transform.a + window.row_off * original_transform.b,
+                           original_transform.d, original_transform.e, 
+                           original_transform.f + window.col_off * original_transform.d + window.row_off * original_transform.e)
         
         output_profile = original_profile.copy()
         output_profile.update({
@@ -267,25 +292,20 @@ def process_images(input_folder, output_folder_pairs, output_folder_triples):
             print(f"No triple overlap found for {os.path.basename(img1_info['path'])}, {os.path.basename(img2_info['path'])}, {os.path.basename(img3_info['path'])}")
             continue
 
-        # 将三张影像的 CRS 都传递给距离计算函数
-        # 假设只要有一个是地理坐标系就用测地线距离，否则用直角坐标
-        # 实际更严谨的做法是检查所有CRS是否一致，或者强制转换为通用投影
         crs_list = [img1_info['profile']['crs'], img2_info['profile']['crs'], img3_info['profile']['crs']]
         
-        # 为了简化，这里我们仍然用前两张影像的CRS来决定距离计算方式
-        # 更严谨的做法是检查是否所有CRS都是地理坐标系，或者统一转换到米单位的投影
-        # 这里假设如果任意一个 CRS 是地理坐标系，就使用测地线距离来计算重叠区域的尺寸
-        # 否则，就按直角坐标计算（假设单位是米）
         is_any_geographic = any(crs.is_geographic for crs in crs_list if crs)
 
         if is_any_geographic:
             # 均为地理坐标系，使用测地线距离计算宽度和高度
-            p1_width = (overlap_miny, overlap_minx)
-            p2_width = (overlap_miny, overlap_maxx)
+            middle_lat = (overlap_miny + overlap_maxy) / 2
+            p1_width = (middle_lat, overlap_minx)
+            p2_width = (middle_lat, overlap_maxx)
             overlap_width_m = geodesic(p1_width, p2_width).meters
 
-            p1_height = (overlap_miny, overlap_minx)
-            p2_height = (overlap_maxy, overlap_minx)
+            middle_lon = (overlap_minx + overlap_maxx) / 2
+            p1_height = (overlap_miny, middle_lon)
+            p2_height = (overlap_maxy, middle_lon)
             overlap_height_m = geodesic(p1_height, p2_height).meters
         else:
             print("警告：三张影像的CRS都不是地理坐标系或无法识别，将直接计算坐标差值作为距离，请确保单位是米。")
