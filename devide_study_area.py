@@ -98,40 +98,32 @@ def process_image_overlaps(image_folder, output_folder, min_overlap_size_meters=
 
 def output_overlap_images(img1_path, img2_path, intersection_geom, output_dir):
     """
-    输出两张影像的交集部分，确保完全重叠且有正确的地理参考信息。
+    输出两张影像的交集部分，并将其转换为单波段全色影像。
     """
-    # 获取交集的边界 (地理坐标系)
     minx, miny, maxx, maxy = intersection_geom.bounds
 
     for img_path in [img1_path, img2_path]:
         with rasterio.open(img_path) as src:
-            # 计算交集区域在当前影像中的窗口
             window = src.window(minx, miny, maxx, maxy)
 
-            # 优化：大影像读取优化
-            # 仅读取窗口内的数据
-            # 将窗口转换为整数像素坐标，确保读取正确
             window = Window(max(0, int(window.col_off)),
                             max(0, int(window.row_off)),
                             min(src.width - window.col_off, int(window.width)),
                             min(src.height - window.row_off, int(window.height)))
 
-            # 确保窗口有效且没有负值
             if window.width <= 0 or window.height <= 0:
                 print(f"警告: 影像 {os.path.basename(img_path)} 的交集窗口无效，跳过输出。")
                 continue
 
-            # 读取数据
-            # 考虑影像可能非常大，可以分块读取，这里先尝试直接读取窗口
-            # 如果内存不足，需要实现更精细的分块读取逻辑
             try:
-                data = src.read(window=window)
+                # 读取所有波段数据
+                multispectral_data = src.read(window=window)
             except Exception as e:
                 print(f"读取影像 {os.path.basename(img_path)} 的窗口数据时发生错误: {e}")
                 print("尝试进行分块读取...")
-                # 简单分块示例，实际应用中需要更完善的循环和内存管理
-                block_size = 2048 # 每次读取的像素块大小
-                output_data = np.empty((src.count, int(window.height), int(window.width)), dtype=src.dtype)
+                block_size = 2048
+                # 为所有波段创建临时存储
+                multispectral_data = np.empty((src.count, int(window.height), int(window.width)), dtype=src.dtypes[0])
 
                 for b in range(src.count):
                     for r_off in range(0, int(window.height), block_size):
@@ -142,31 +134,47 @@ def output_overlap_images(img1_path, img2_path, intersection_geom, output_dir):
                                                     min(block_size, int(window.height) - r_off))
                             if current_window.width > 0 and current_window.height > 0:
                                 block_data = src.read(b + 1, window=current_window)
-                                output_data[b, r_off:r_off+block_data.shape[0], c_off:c_off+block_data.shape[1]] = block_data
-                data = output_data
+                                multispectral_data[b, r_off:r_off+block_data.shape[0], c_off:c_off+block_data.shape[1]] = block_data
 
+            # --- 转换为全色影像的核心修改 ---
+            # 假设多光谱影像的可见光波段在前面，例如：波段1=蓝，波段2=绿，波段3=红
+            # 这里我们简单地取所有波段的平均值作为全色值。
+            # 如果你的影像有特定的波段顺序（例如，IR波段），你可能需要调整索引或加权。
+            if multispectral_data.shape[0] > 1: # 确保是多波段影像
+                # 将所有波段数据转换为 float32 进行计算，避免溢出
+                # 然后取平均值，再转换回原始数据类型（或适当的灰度数据类型，如uint8或uint16）
+                pan_data = np.mean(multispectral_data, axis=0).astype(src.dtypes[0])
+            else:
+                # 如果本身就是单波段（可能已经是全色），则直接使用
+                pan_data = multispectral_data[0] # 取第一个波段
 
-            # 创建新的变换矩阵，使输出影像的左上角与交集的左上角对齐
+            # 确保 pan_data 是一个二维数组 (高度, 宽度)
+            if pan_data.ndim == 3 and pan_data.shape[0] == 1:
+                pan_data = pan_data.squeeze() # 移除单例维度
+            elif pan_data.ndim != 2:
+                raise ValueError("转换后的全色数据维度不正确，预期为二维。")
+
+            # 创建新的变换矩阵
             out_transform = src.window_transform(window)
 
-            # 定义输出文件路径
-            output_filename = os.path.join(output_dir, f"{os.path.basename(img_path).split('.tif')[0]}_overlap.tif")
+            output_filename = os.path.join(output_dir, f"{os.path.basename(img_path).split('.')[0]}_pan.tif") # 修改文件名以区分
 
-            # 写入输出影像
+            # 写入输出影像，现在是单波段
             with rasterio.open(
                 output_filename,
                 'w',
                 driver='GTiff',
-                height=data.shape[1],
-                width=data.shape[2],
-                count=src.count,
-                dtype=src.dtypes[0],
+                height=pan_data.shape[0], # 使用 pan_data 的高度
+                width=pan_data.shape[1],  # 使用 pan_data 的宽度
+                count=1,                  # 全色影像是单波段
+                dtype=pan_data.dtype,     # 使用 pan_data 的数据类型
                 crs=src.crs,
                 transform=out_transform,
-                nodata=src.nodata # 保留原始影像的NoData值
+                nodata=src.nodata         # 保留原始影像的NoData值
             ) as dst:
-                dst.write(data)
-        print(f"已生成交集影像: {output_filename}")
+                dst.write(pan_data, 1) # 写入第一个波段
+        print(f"已生成全色交集影像: {output_filename}")
+
 
 
 if __name__ == "__main__":
