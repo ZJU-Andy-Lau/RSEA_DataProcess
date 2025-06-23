@@ -98,7 +98,7 @@ def process_image_overlaps(image_folder, output_folder, min_overlap_size_meters=
 
 def output_overlap_images(img1_path, img2_path, intersection_geom, output_dir):
     """
-    输出两张影像的交集部分，并将其转换为单波段全色影像。
+    输出两张影像的交集部分，并将其转换为单波段全色影像（uint8类型）。
     """
     minx, miny, maxx, maxy = intersection_geom.bounds
 
@@ -122,7 +122,6 @@ def output_overlap_images(img1_path, img2_path, intersection_geom, output_dir):
                 print(f"读取影像 {os.path.basename(img_path)} 的窗口数据时发生错误: {e}")
                 print("尝试进行分块读取...")
                 block_size = 2048
-                # 为所有波段创建临时存储
                 multispectral_data = np.empty((src.count, int(window.height), int(window.width)), dtype=src.dtypes[0])
 
                 for b in range(src.count):
@@ -136,44 +135,55 @@ def output_overlap_images(img1_path, img2_path, intersection_geom, output_dir):
                                 block_data = src.read(b + 1, window=current_window)
                                 multispectral_data[b, r_off:r_off+block_data.shape[0], c_off:c_off+block_data.shape[1]] = block_data
 
-            # --- 转换为全色影像的核心修改 ---
-            # 假设多光谱影像的可见光波段在前面，例如：波段1=蓝，波段2=绿，波段3=红
-            # 这里我们简单地取所有波段的平均值作为全色值。
-            # 如果你的影像有特定的波段顺序（例如，IR波段），你可能需要调整索引或加权。
+            # --- 转换为全色影像的核心修改：增加归一化到uint8 ---
             if multispectral_data.shape[0] > 1: # 确保是多波段影像
-                # 将所有波段数据转换为 float32 进行计算，避免溢出
-                # 然后取平均值，再转换回原始数据类型（或适当的灰度数据类型，如uint8或uint16）
-                pan_data = np.mean(multispectral_data, axis=0).astype(src.dtypes[0])
+                # 将所有波段数据转换为 float32 进行计算，以保持精度
+                pan_data_float = np.mean(multispectral_data.astype(np.float32), axis=0)
             else:
-                # 如果本身就是单波段（可能已经是全色），则直接使用
-                pan_data = multispectral_data[0] # 取第一个波段
+                # 如果本身就是单波段，则直接使用
+                pan_data_float = multispectral_data[0].astype(np.float32)
 
-            # 确保 pan_data 是一个二维数组 (高度, 宽度)
-            if pan_data.ndim == 3 and pan_data.shape[0] == 1:
-                pan_data = pan_data.squeeze() # 移除单例维度
-            elif pan_data.ndim != 2:
+            # 归一化到 0-255 范围
+            min_val = np.min(pan_data_float)
+            max_val = np.max(pan_data_float)
+
+            if max_val > min_val: # 避免除以零
+                # 线性拉伸到 0-255，并转换为 uint8
+                pan_data_uint8 = ((pan_data_float - min_val) / (max_val - min_val) * 255).astype(np.uint8)
+            else: # 如果所有像素值都相同 (平坦区域)
+                pan_data_uint8 = np.zeros_like(pan_data_float, dtype=np.uint8)
+                if min_val > 0: # 如果值不是0，则设为最大值255
+                    pan_data_uint8.fill(255)
+
+
+            # 确保 pan_data_uint8 是一个二维数组 (高度, 宽度)
+            if pan_data_uint8.ndim == 3 and pan_data_uint8.shape[0] == 1:
+                pan_data_uint8 = pan_data_uint8.squeeze()
+            elif pan_data_uint8.ndim != 2:
                 raise ValueError("转换后的全色数据维度不正确，预期为二维。")
 
             # 创建新的变换矩阵
             out_transform = src.window_transform(window)
 
-            output_filename = os.path.join(output_dir, f"{os.path.basename(img_path).split('.')[0]}_pan.tif") # 修改文件名以区分
+            output_filename = os.path.join(output_dir, f"{os.path.basename(img_path).split('.')[0]}_pan_uint8.tif") # 修改文件名以区分
 
-            # 写入输出影像，现在是单波段
+            # 写入输出影像，现在是单波段，uint8类型
             with rasterio.open(
                 output_filename,
                 'w',
                 driver='GTiff',
-                height=pan_data.shape[0], # 使用 pan_data 的高度
-                width=pan_data.shape[1],  # 使用 pan_data 的宽度
-                count=1,                  # 全色影像是单波段
-                dtype=pan_data.dtype,     # 使用 pan_data 的数据类型
+                height=pan_data_uint8.shape[0],
+                width=pan_data_uint8.shape[1],
+                count=1,
+                dtype=np.uint8,  # 明确指定为 uint8
                 crs=src.crs,
                 transform=out_transform,
-                nodata=src.nodata         # 保留原始影像的NoData值
+                nodata=None      # 由于归一化，通常不再保留原始的nodata值，除非你希望对nodata像素进行特殊处理
+                                 # 如果原始影像有nodata，并且你希望它们在uint8输出中仍然是nodata，需要更复杂的处理
+                                 # 例如，在归一化之前屏蔽nodata像素，并在归一化后再将其设回。
             ) as dst:
-                dst.write(pan_data, 1) # 写入第一个波段
-        print(f"已生成全色交集影像: {output_filename}")
+                dst.write(pan_data_uint8, 1) # 写入第一个波段
+        print(f"已生成全色交集影像 (uint8): {output_filename}")
 
 
 
