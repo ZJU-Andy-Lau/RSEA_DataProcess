@@ -2,6 +2,7 @@ import rasterio
 import numpy as np
 import os
 from itertools import combinations
+import argparse
 
 def read_as_panchromatic(image_path):
     """
@@ -207,9 +208,14 @@ def process_images(input_folder, output_folder_pairs, output_folder_triples):
 
 if __name__ == "__main__":
     # 配置输入和输出文件夹
-    input_directory = "./data/dadukou/raw" # 替换为你的影像文件夹路径
-    output_directory_pairs = "./data/dadukou/pairs"
-    output_directory_triples = "./data/dadukou/triples"
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--root', type=str,
+                        help='path to all images needed adjustment in a folder')
+    options = parser.parse_args()
+
+    input_directory = os.path.join(options.root,'raw')
+    output_directory_pairs = os.path.join(options.root,'pairs')
+    output_directory_triples = os.path.join(options.root,'triples')
 
     process_images(input_directory, output_directory_pairs, output_directory_triples)
 
