@@ -16,7 +16,7 @@ def read_as_panchromatic(image_path, target_crs=None):
         original_crs = src.crs
 
         if target_crs and src.crs != target_crs:
-            print(f"Reprojecting {os.path.basename(image_path)} from {src.crs.name} to {target_crs.name} for processing.")
+            print(f"Reprojecting {os.path.basename(image_path)} from {src.crs.to_string()} to {target_crs.to_string()} for processing.")
             # Calculate the transform and dimensions for the reprojected image
             _transform, _width, _height = rasterio.warp.calculate_default_transform(
                 src.crs, target_crs, src.width, src.height, *src.bounds
@@ -124,8 +124,6 @@ def extract_and_save_overlap(image_path, overlap_bbox_meters, output_folder, out
         # If so, transform the overlap_bbox_meters back to the source CRS for correct windowing
         if src.crs != original_crs_for_output:
             transformer = Transformer.from_crs(original_crs_for_output, src.crs, always_xy=True)
-            minx_src, miny_src = transformer.transform(minx_m, miny_m)
-            maxx_src, maxy_src = transformer.transform(maxx_m, maxy_m)
             # transform_bounds handles min/max correctly after reprojection
             src_bounds_reprojected = transform_bounds(original_crs_for_output, src.crs, minx_m, miny_m, maxx_m, maxy_m)
             minx_src, miny_src, maxx_src, maxy_src = src_bounds_reprojected
@@ -181,21 +179,22 @@ def process_images(input_folder, output_folder_pairs, output_folder_triples):
     # 例如，如果你的研究区域在中国，你可以选择一个 UTM 区域的 CRS，如 EPSG:32650 (WGS 84 / UTM zone 50N)
     # 这里我们使用一个通用的投影CRS (Web Mercator)，它以米为单位
     target_meter_crs = CRS.from_epsg(3857) 
-    print(f"Using {target_meter_crs.name} (EPSG:{target_meter_crs.to_epsg()}) as the target CRS for overlap calculations.")
+    print(f"Using {target_meter_crs.to_string()} (EPSG:{target_meter_crs.to_epsg()}) as the target CRS for overlap calculations.")
 
     # 存储影像信息： (全色数据, profile, 原始路径, 原始CRS)
     image_data = []
     for img_path in image_files:
         try:
             pan_data, profile, original_crs = read_as_panchromatic(img_path, target_crs=target_meter_crs)
-            image_data.append({'path': img_path, 'pan_data': pan_data, 'profile': profile, 'original_crs': original_crs})
-            print(f"Successfully read and converted {os.path.basename(img_path)} to panchromatic and reprojected to {profile['crs'].name}.")
+            # 使用 .to_string() 或 .to_epsg() 替代 .name
+            print(f"Successfully read and converted {os.path.basename(img_path)} to panchromatic and reprojected to {profile['crs'].to_string()}.")
         except rasterio.errors.RasterioIOError as e:
             print(f"Error reading {os.path.basename(img_path)}: {e}. Skipping this file.")
             continue
         except Exception as e:
             print(f"An unexpected error occurred while processing {os.path.basename(img_path)}: {e}. Skipping this file.")
             continue
+        image_data.append({'path': img_path, 'pan_data': pan_data, 'profile': profile, 'original_crs': original_crs})
 
     # --- 寻找两两重叠区域 ---
     print("\n--- Searching for pairwise overlapping regions (>= 5000m x 5000m) ---")
@@ -218,7 +217,7 @@ def process_images(input_folder, output_folder_pairs, output_folder_triples):
 
             if overlap_bbox_meters:
                 print(f"Found significant overlap between {os.path.basename(img1_info['path'])} and {os.path.basename(img2_info['path'])}")
-                print(f"  Overlap BBox (geographic, in {target_meter_crs.name}): {overlap_bbox_meters}")
+                print(f"  Overlap BBox (geographic, in {target_meter_crs.to_string()}): {overlap_bbox_meters}")
                 print(f"  Approximate Overlap Size (pixels): {overlap_pixels[0]}x{overlap_pixels[1]}")
 
                 # 提取并保存重叠区域，确保输出CRS与原始影像一致
@@ -264,7 +263,7 @@ def process_images(input_folder, output_folder_pairs, output_folder_triples):
         if overlap_width_m >= 1000 and overlap_height_m >= 1000:
             overlap_bbox_triple_meters = (overlap_minx, overlap_miny, overlap_maxx, overlap_maxy)
             print(f"Found significant triple overlap for {os.path.basename(img1_info['path'])}, {os.path.basename(img2_info['path'])}, {os.path.basename(img3_info['path'])}")
-            print(f"  Overlap BBox (geographic, in {target_meter_crs.name}): {overlap_bbox_triple_meters}")
+            print(f"  Overlap BBox (geographic, in {target_meter_crs.to_string()}): {overlap_bbox_triple_meters}")
             print(f"  Approximate Overlap Size (pixels): {overlap_pixels[0]}x{overlap_pixels[1]}")
 
             # 提取并保存三张影像的重叠区域
