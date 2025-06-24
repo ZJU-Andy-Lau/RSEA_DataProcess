@@ -292,8 +292,8 @@ def match_one_pair(model:RoMa,image0,image1):
                                         confidence=0.999999, maxIters=10000)
         mask = mask.ravel() > 0
 
-        kpts0 = kpts0[mask]
-        kpts1 = kpts1[mask]
+        kpts0 = kpts0[mask].cpu().numpy()
+        kpts1 = kpts1[mask].cpu().numpy()
 
         # with open(output_path,'w') as f:
         #     for kpt0,kpt1 in zip(kpts0,kpts1):
