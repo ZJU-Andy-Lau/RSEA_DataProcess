@@ -14,6 +14,9 @@ import os
 from tqdm import tqdm
 import rasterio
 import rasterio.errors
+import warnings
+
+warnings.filterwarnings("ignore")
 
 class Image:
     def __init__(self, filepath: str):
@@ -280,6 +283,10 @@ def match(model:RoMa,tif_path0:str,tif_path1:str,output_path:str):
             img0 = image0.get_img((line,samp),(line + size,samp + size))
             img1 = image1.get_img((line,samp),(line + size,samp + size))
             kpts0,kpts1 = match_one_pair(model,img0,img1)
+            kpts0[:,0] += line
+            kpts0[:,1] += samp
+            kpts1[:,0] += line
+            kpts1[:,1] += samp
             kpts0_total.append(kpts0)
             kpts1_total.append(kpts1)
             pbar.update(1)
