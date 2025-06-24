@@ -16,6 +16,8 @@ import rasterio
 import rasterio.errors
 import warnings
 
+from torch.utils.data import Dataset,DataLoader
+
 warnings.filterwarnings("ignore")
 
 class Image:
@@ -129,6 +131,51 @@ class Image:
         self._close_source()
         print(f"影像 '{self.filepath}' 的资源已释放。")
 
+class ImageDataset(Dataset):
+    def __init__(self,image0:Image,image1:Image):
+        super().__init__()
+        self.image0 = image0
+        self.image1 = image1
+        H0,W0 = image0.get_size()
+        H1,W1 = image1.get_size()
+        if H0 != H1 or W0 != W1:
+            print("错误：两张影像尺寸不匹配")
+            exit()
+        
+        self.H,self.W = H0,W0
+        
+        self.size = 672
+        self.step = self.size // 3
+
+        self.lines = np.arange(0,self.H - self.size,self.step)
+        self.samps = np.arange(0,self.W - self.size,self.step)
+        if self.lines[-1] < self.H - self.size - 1:
+            self.lines = np.append(self.lines,self.H - self.size - 1)
+        if self.samps[-1] < self.W - self.size - 1:
+            self.samps = np.append(self.samps,self.W - self.size - 1)
+        
+        self.patch_num = len(self.lines) * len(self.samps)
+    
+    def __len__(self):
+        return self.patch_num
+    
+    def __getitem__(self, index):
+        line_idx = index // len(self.lines)
+        samp_idx = index % len(self.samps)
+        line = self.lines[line_idx]
+        samp = self.samps[samp_idx]
+        img0 = self.image0.get_img((line,samp),(line + self.size,samp + self.size))
+        img1 = self.image1.get_img((line,samp),(line + self.size,samp + self.size))
+
+        img0 = torch.from_numpy(img0)
+        img1 = torch.from_numpy(img1)
+        line = torch.tensor([line])
+        samp = torch.tensor([samp])
+
+        return img0,img1,line,samp
+
+
+
 def read_image(path, grayscale=False):
     if grayscale:
         mode = cv2.IMREAD_GRAYSCALE
@@ -155,8 +202,9 @@ def resize_image(image, size, interp):
             f'Unknown interpolation {interp}.')
     return resized
 
-def preprocess(image: np.ndarray, grayscale: bool = False, resize_max: int = None,
+def preprocess(image: torch.Tensor, grayscale: bool = False, resize_max: int = None,
                dfactor: int = 8):
+    image = image.numpy()
     image = image.astype(np.float32, copy=False)
     size = image.shape[:2][::-1]
     scale = np.array([1.0, 1.0])
@@ -255,33 +303,20 @@ def match_one_pair(model:RoMa,image0,image1):
         return kpts0,kpts1
 
 
-def match(model:RoMa,tif_path0:str,tif_path1:str,output_path:str):
+def match(model:RoMa,tif_path0:str,tif_path1:str,output_path:str,batch_size = 8):
     image0 = Image(tif_path0)
     image1 = Image(tif_path1)
-    H0,W0 = image0.get_size()
-    H1,W1 = image1.get_size()
-    if H0 != H1 or W0 != W1:
-        print("错误：两张影像尺寸不匹配")
-        exit()
-    
-    size = 672
-    step = size // 3
-
-    lines = np.arange(0,H0 - size,step)
-    samps = np.arange(0,W0 - size,step)
-    if lines[-1] < H0 - size - 1:
-        lines = np.append(lines,H0 - size - 1)
-    if samps[-1] < W0 - size - 1:
-        samps = np.append(samps,W0 - size - 1)
-
-    pbar = tqdm(total=len(lines) * len(samps))
+    dataset = ImageDataset(image0,image1)
+    dataloader = DataLoader(dataset,batch_size=batch_size,shuffle=False)
+    patch_num = len(dataset)
+    pbar = tqdm(total=patch_num)
     kpts0_total = []
     kpts1_total = []
 
-    for line in lines:
-        for samp in samps:
-            img0 = image0.get_img((line,samp),(line + size,samp + size))
-            img1 = image1.get_img((line,samp),(line + size,samp + size))
+    for data in dataloader:
+        imgs0,imgs1,lines,samps = data
+        for idx in range(batch_size):
+            img0,img1,line,samp = imgs0[idx],imgs1[idx],lines[idx],samps[idx]
             kpts0,kpts1 = match_one_pair(model,img0,img1)
             kpts0[:,0] += line
             kpts0[:,1] += samp
@@ -290,6 +325,7 @@ def match(model:RoMa,tif_path0:str,tif_path1:str,output_path:str):
             kpts0_total.append(kpts0)
             kpts1_total.append(kpts1)
             pbar.update(1)
+
     
     kpts0_total = np.concatenate(kpts0_total,axis=0)
     kpts1_total = np.concatenate(kpts1_total,axis=0)
