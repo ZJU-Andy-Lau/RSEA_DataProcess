@@ -167,7 +167,7 @@ def preprocess(image: np.ndarray, grayscale: bool = False, resize_max: int = Non
 
     if grayscale:
         assert image.ndim == 2, image.shape
-        image = image[None]
+        image = np.stack([image] * 3,axis=0)
     else:
         image = image.transpose((2, 0, 1))  # HxWxC to CxHxW
     image = torch.from_numpy(image / 255.0).float()
