@@ -145,7 +145,7 @@ class ImageDataset(Dataset):
         self.H,self.W = H0,W0
         
         self.size = 672
-        self.step = self.size * 3
+        self.step = self.size // 3
 
         self.lines = np.arange(0,self.H - self.size,self.step)
         self.samps = np.arange(0,self.W - self.size,self.step)
@@ -307,7 +307,7 @@ def match(model:RoMa,tif_path0:str,tif_path1:str,output_path:str,batch_size = 8)
     image0 = Image(tif_path0)
     image1 = Image(tif_path1)
     dataset = ImageDataset(image0,image1)
-    dataloader = DataLoader(dataset,batch_size=batch_size,shuffle=False)
+    dataloader = DataLoader(dataset,batch_size=batch_size,shuffle=False,num_workers=4)
     patch_num = len(dataset)
     pbar = tqdm(total=patch_num)
     kpts0_total = []
