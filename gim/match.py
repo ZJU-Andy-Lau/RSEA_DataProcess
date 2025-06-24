@@ -318,10 +318,10 @@ def match(model:RoMa,tif_path0:str,tif_path1:str,output_path:str,batch_size = 8)
         for idx in range(batch_size):
             img0,img1,line,samp = imgs0[idx],imgs1[idx],lines[idx],samps[idx]
             kpts0,kpts1 = match_one_pair(model,img0,img1)
-            kpts0[:,0] += line
-            kpts0[:,1] += samp
-            kpts1[:,0] += line
-            kpts1[:,1] += samp
+            kpts0[:,0] += line[0]
+            kpts0[:,1] += samp[0]
+            kpts1[:,0] += line[0]
+            kpts1[:,1] += samp[0]
             kpts0_total.append(kpts0)
             kpts1_total.append(kpts1)
             pbar.update(1)
