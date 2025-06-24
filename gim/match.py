@@ -53,7 +53,7 @@ class Image:
             self._src.close()
             self._src = None
 
-    def get_size(self) -> tuple[int, int]:
+    def get_size(self):
         """
         获取影像的高度和宽度。
 
@@ -62,7 +62,7 @@ class Image:
         """
         return (self._height, self._width)
 
-    def get_img(self, top_left_linesamp: tuple[int, int], bottom_right_linesamp: tuple[int, int]) -> np.ndarray:
+    def get_img(self, top_left_linesamp, bottom_right_linesamp) -> np.ndarray:
         """
         获取一个矩形窗口内的影像数据，并将其转换为全色图像。
         如果影像有多个波段，则计算平均值。
