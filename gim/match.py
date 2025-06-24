@@ -181,8 +181,8 @@ def preprocess(image: np.ndarray, grayscale: bool = False, resize_max: int = Non
     return image, scale
 
 def match_one_pair(model:RoMa,image0,image1):
-        image0, scale0 = preprocess(image0)
-        image1, scale1 = preprocess(image1)
+        image0, scale0 = preprocess(image0,grayscale=True)
+        image1, scale1 = preprocess(image1,grayscale=True)
 
         image0 = image0.to(device)[None]
         image1 = image1.to(device)[None]
