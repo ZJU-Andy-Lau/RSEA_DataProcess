@@ -231,6 +231,7 @@ def preprocess(image: torch.Tensor, grayscale: bool = False, resize_max: int = N
     scale = np.array(size) / np.array(size_new)[::-1]
     return image, scale
 
+
 def match_one_pair(model:RoMa,image0,image1):
         image0, scale0 = preprocess(image0,grayscale=True)
         image1, scale1 = preprocess(image1,grayscale=True)
@@ -310,8 +311,10 @@ def match(model:RoMa,tif_path0:str,tif_path1:str,output_path:str,batch_size = 8)
     dataloader = DataLoader(dataset,batch_size=batch_size,shuffle=False,num_workers=4)
     patch_num = len(dataset)
     pbar = tqdm(total=patch_num)
-    kpts0_total = []
-    kpts1_total = []
+    res0 = np.full((dataset.H,dataset.W),np.nan,dtype=np.uint8)
+    res1 = np.full((dataset.H,dataset.W),np.nan,dtype=np.uint8)
+    # kpts0_total = []
+    # kpts1_total = []
 
     for data in dataloader:
         imgs0,imgs1,lines,samps = data
@@ -322,17 +325,21 @@ def match(model:RoMa,tif_path0:str,tif_path1:str,output_path:str,batch_size = 8)
             kpts0[:,1] += samp
             kpts1[:,0] += line
             kpts1[:,1] += samp
-            kpts0_total.append(kpts0)
-            kpts1_total.append(kpts1)
+            residuals = np.clip(np.linalg.norm(kpts0 - kpts1,axis=1),min=0,max=255).astype(np.uint8)
+            res0[kpts0[:,0].astype(int),kpts0[:,1].astype(int)] = residuals
+            res1[kpts1[:,0].astype(int),kpts1[:,1].astype(int)] = residuals
+            # kpts0_total.append(kpts0)
+            # kpts1_total.append(kpts1)
             pbar.update(1)
 
-    
-    kpts0_total = np.concatenate(kpts0_total,axis=0)
-    kpts1_total = np.concatenate(kpts1_total,axis=0)
+    np.save(os.path.join(output_path,'res_1.npy'),res0)
+    np.save(os.path.join(output_path,'res_2.npy'),res1)
+    # kpts0_total = np.concatenate(kpts0_total,axis=0)
+    # kpts1_total = np.concatenate(kpts1_total,axis=0)
 
-    with open(output_path,'w') as f:
-        for kpt0,kpt1 in zip(kpts0_total,kpts1_total):
-            f.write(f"{kpt0[1].item():.2f} {kpt0[0].item():.2f} {kpt1[1].item():.2f} {kpt1[0].item():.2f}\n")
+    # with open(output_path,'w') as f:
+    #     for kpt0,kpt1 in zip(kpts0_total,kpts1_total):
+    #         f.write(f"{kpt0[1].item():.2f} {kpt0[0].item():.2f} {kpt1[1].item():.2f} {kpt1[0].item():.2f}\n")
     
 
 
@@ -357,4 +364,4 @@ if __name__ == '__main__':
     if len(imgs) != 2:
         raise ValueError("错误：输入文件夹中需要正好包含两张影像")
     
-    match(model,imgs[0],imgs[1],os.path.join(options.root,'match_res.txt'))
+    match(model,imgs[0],imgs[1],options.root)
