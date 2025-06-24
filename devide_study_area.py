@@ -2,6 +2,8 @@ import os
 import glob
 import rasterio
 from rasterio.windows import Window
+import rasterio.features
+import rasterio.errors
 from rasterio.enums import Resampling # 虽然在此代码中未使用，但保留以备将来扩展
 import numpy as np
 from shapely.geometry import Polygon, box
