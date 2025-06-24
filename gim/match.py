@@ -310,7 +310,7 @@ if __name__ == '__main__':
     model.load_state_dict(state_dict)
     model = model.eval().to(device)
 
-    imgs = [i for i in os.listdir(options.root) if 'tif' in i]
+    imgs = [os.path.join(options.root,i) for i in os.listdir(options.root) if 'tif' in i]
     if len(imgs) != 2:
         raise ValueError("错误：输入文件夹中需要正好包含两张影像")
     
