@@ -351,7 +351,6 @@ def match(model:RoMa,tif_path0:str,tif_path1:str,output_path:str,batch_size = 8)
             if count % 10 == 0:
                 np.save(os.path.join(output_path,'res_1.npy'),res0)
                 np.save(os.path.join(output_path,'res_2.npy'),res1)
-                exit()
 
 
     np.save(os.path.join(output_path,'res_1.npy'),res0)
