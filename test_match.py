@@ -178,6 +178,7 @@ def match(model,tif_path0,tif_path1,output_path,batch_size=8):
         for idx in range(imgs0.shape[0]):
             img0,img1,line,samp = imgs0[idx],imgs1[idx],lines[idx][0].item(),samps[idx][0].item()
             num_keypoints = 2048
+            print(img0.shape,img1.shape)
             points_tensor = model(img0,img1,num_keypoints)
             kpts0 = points_tensor[:, :2].cpu().numpy()
             kpts1 = points_tensor[:, 2:].cpu().numpy()
