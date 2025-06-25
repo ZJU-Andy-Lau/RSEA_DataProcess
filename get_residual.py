@@ -169,7 +169,7 @@ def match(model,tif_path0,tif_path1,output_path,batch_size=8):
     image0 = Image(tif_path0)
     image1 = Image(tif_path1)
     dataset = ImageDataset(image0,image1)
-    dataloader = DataLoader(dataset,batch_size=batch_size,shuffle=True,num_workers=4)
+    dataloader = DataLoader(dataset,batch_size=batch_size,shuffle=False,num_workers=4)
     patch_num = len(dataset)
     pbar = tqdm(total=patch_num)
     res0 = np.full((dataset.H,dataset.W),0,dtype=np.uint8)
@@ -187,13 +187,13 @@ def match(model,tif_path0,tif_path1,output_path,batch_size=8):
             points_tensor = model(img0,img1,num_keypoints)
             kpts0 = points_tensor[:, :2].cpu().numpy()
             kpts1 = points_tensor[:, 2:].cpu().numpy()
-            kpts0[:,0] += line
-            kpts0[:,1] += samp
-            kpts1[:,0] += line
-            kpts1[:,1] += samp
+            kpts0[:,1] += line
+            kpts0[:,0] += samp
+            kpts1[:,1] += line
+            kpts1[:,0] += samp
             residuals = np.clip(np.round(np.linalg.norm(kpts0 - kpts1,axis=1)),a_min=1,a_max=255).astype(np.uint8)
-            res0[kpts0[:,0].astype(int),kpts0[:,1].astype(int)] = residuals
-            res1[kpts1[:,0].astype(int),kpts1[:,1].astype(int)] = residuals
+            res0[kpts0[:,1].astype(int),kpts0[:,0].astype(int)] = residuals
+            res1[kpts1[:,1].astype(int),kpts1[:,0].astype(int)] = residuals
             kpts0_total.append(kpts0)
             kpts1_total.append(kpts1)
             residuals_total.append(residuals)
