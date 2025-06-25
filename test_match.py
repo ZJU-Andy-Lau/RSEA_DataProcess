@@ -196,6 +196,7 @@ def match(model,tif_path0,tif_path1,output_path,batch_size=8):
             cv2.imwrite(os.path.join(img_output_path,f'img0_{count}.png'),img0)
             cv2.imwrite(os.path.join(img_output_path,f'img1_{count}.png'),img1)
             pbar.update(1)
+            count += 1
 
             if count > 10:
                 exit()
