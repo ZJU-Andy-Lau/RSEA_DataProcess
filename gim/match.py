@@ -338,15 +338,15 @@ def match(model:RoMa,tif_path0:str,tif_path1:str,output_path:str,batch_size = 8)
             pbar.update(1)
             count += 1
 
-            img0 = img0.numpy()
-            img1 = img1.numpy()
+            # img0 = img0.numpy()
+            # img1 = img1.numpy()
 
-            for i in range(len(kpts0)):
-                cv2.circle(img0,(int(kpts0[i,0]),int(kpts0[i,1])),1,(0,255,0),-1)
-                cv2.circle(img1,(int(kpts1[i,0]),int(kpts1[i,1])),1,(0,255,0),-1)
+            # for i in range(len(kpts0)):
+            #     cv2.circle(img0,(int(kpts0[i,0]),int(kpts0[i,1])),1,(0,255,0),-1)
+            #     cv2.circle(img1,(int(kpts1[i,0]),int(kpts1[i,1])),1,(0,255,0),-1)
             
-            cv2.imwrite(os.path.join(output_path,f'img0_{count}.png'),img0)
-            cv2.imwrite(os.path.join(output_path,f'img1_{count}.png'),img1)
+            # cv2.imwrite(os.path.join(output_path,f'img0_{count}.png'),img0)
+            # cv2.imwrite(os.path.join(output_path,f'img1_{count}.png'),img1)
 
             if count % 10 == 0:
                 np.save(os.path.join(output_path,'res_1.npy'),res0)
