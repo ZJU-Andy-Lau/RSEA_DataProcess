@@ -154,7 +154,8 @@ class ImageDataset(Dataset):
         if self.samps[-1] < self.W - self.size - 1:
             self.samps = np.append(self.samps,self.W - self.size - 1)
         
-        self.coords = np.meshgrid(self.lines,self.samps,indexing='ij')
+        line_mesh,samp_mesh = np.meshgrid(self.lines,self.samps,indexing='ij')
+        self.coords = np.stack([line_mesh.ravel(),samp_mesh.ravel()],axis=-1)
         
         self.patch_num = len(self.coords)
     
