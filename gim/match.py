@@ -311,11 +311,12 @@ def match(model:RoMa,tif_path0:str,tif_path1:str,output_path:str,batch_size = 8)
     dataloader = DataLoader(dataset,batch_size=batch_size,shuffle=False,num_workers=4)
     patch_num = len(dataset)
     pbar = tqdm(total=patch_num)
-    res0 = np.full((dataset.H,dataset.W),np.nan,dtype=np.uint8)
-    res1 = np.full((dataset.H,dataset.W),np.nan,dtype=np.uint8)
+    res0 = np.full((dataset.H,dataset.W),0,dtype=np.uint8)
+    res1 = np.full((dataset.H,dataset.W),0,dtype=np.uint8)
     count = 0
-    # kpts0_total = []
-    # kpts1_total = []
+    kpts0_total = []
+    kpts1_total = []
+    residuals_total = []
 
     for data in dataloader:
         imgs0,imgs1,lines,samps = data
@@ -329,8 +330,9 @@ def match(model:RoMa,tif_path0:str,tif_path1:str,output_path:str,batch_size = 8)
             residuals = np.clip(np.linalg.norm(kpts0 - kpts1,axis=1),a_min=0,a_max=255).astype(np.uint8)
             res0[kpts0[:,0].astype(int),kpts0[:,1].astype(int)] = residuals
             res1[kpts1[:,0].astype(int),kpts1[:,1].astype(int)] = residuals
-            # kpts0_total.append(kpts0)
-            # kpts1_total.append(kpts1)
+            kpts0_total.append(kpts0)
+            kpts1_total.append(kpts1)
+            residuals_total.append(residuals)
             pbar.update(1)
             count += 1
             if count % 10 == 0:
@@ -340,12 +342,13 @@ def match(model:RoMa,tif_path0:str,tif_path1:str,output_path:str,batch_size = 8)
 
     np.save(os.path.join(output_path,'res_1.npy'),res0)
     np.save(os.path.join(output_path,'res_2.npy'),res1)
-    # kpts0_total = np.concatenate(kpts0_total,axis=0)
-    # kpts1_total = np.concatenate(kpts1_total,axis=0)
+    kpts0_total = np.concatenate(kpts0_total,axis=0)
+    kpts1_total = np.concatenate(kpts1_total,axis=0)
+    residuals_total = np.concatenate(residuals_total,axis=0)
 
-    # with open(output_path,'w') as f:
-    #     for kpt0,kpt1 in zip(kpts0_total,kpts1_total):
-    #         f.write(f"{kpt0[1].item():.2f} {kpt0[0].item():.2f} {kpt1[1].item():.2f} {kpt1[0].item():.2f}\n")
+    with open(os.path.join(output_path,'match_res.txt'),'w') as f:
+        for kpt0,kpt1,res in zip(kpts0_total,kpts1_total,residuals_total):
+            f.write(f"{kpt0[1]:.2f} {kpt0[0]:.2f} {kpt1[1]:.2f} {kpt1[0]:.2f} {res}\n")
     
 
 
