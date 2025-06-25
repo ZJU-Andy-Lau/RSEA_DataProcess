@@ -199,6 +199,7 @@ def match(model,tif_path0,tif_path1,output_path,batch_size=8):
             residuals_total.append(residuals)
 
             pbar.update(1)
+            pbar.set_postfix({"line":line,"samp":samp})
             count += 1
 
             if count % 10 == 0:
