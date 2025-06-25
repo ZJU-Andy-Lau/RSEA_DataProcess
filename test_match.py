@@ -96,6 +96,7 @@ class Image:
             if self._num_bands == 1:
                 # 读取单波段数据
                 img_data = self._src.read(1, window=window)
+                img_data = np.stack([img_data]*3,axis=-1)
             else:
                 # 读取所有波段数据，并计算平均值进行全色化
                 multispectral_data = self._src.read(window=window)
@@ -154,8 +155,8 @@ class ImageDataset(Dataset):
     
     def __getitem__(self, index):
         line,samp = self.coords[index]
-        img0 = self.image0.get_img((line,samp),(line + self.size,samp + self.size))
-        img1 = self.image1.get_img((line,samp),(line + self.size,samp + self.size))
+        img0 = self.image0.get_img((line,samp),(line + self.size - 1,samp + self.size - 1))
+        img1 = self.image1.get_img((line,samp),(line + self.size - 1,samp + self.size - 1))
 
         img0 = torch.from_numpy(img0)
         img1 = torch.from_numpy(img1)
