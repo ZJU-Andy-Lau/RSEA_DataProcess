@@ -145,7 +145,7 @@ class ImageDataset(Dataset):
         self.H,self.W = H0,W0
         
         self.size = 672
-        self.step = self.size
+        self.step = self.size // 2
 
         self.lines = np.arange(0,self.H - self.size,self.step)
         self.samps = np.arange(0,self.W - self.size,self.step)
