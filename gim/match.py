@@ -145,7 +145,7 @@ class ImageDataset(Dataset):
         self.H,self.W = H0,W0
         
         self.size = 672
-        self.step = self.size // 2
+        self.step = self.size
 
         self.lines = np.arange(0,self.H - self.size,self.step)
         self.samps = np.arange(0,self.W - self.size,self.step)
@@ -280,21 +280,21 @@ def match_one_pair(model:RoMa,image0,image1):
 
         mconf = mconf[mask_]
         b_ids = b_ids[mask_]
-        kpts0 = kpts0[mask_]
-        kpts1 = kpts1[mask_]
+        kpts0 = kpts0[mask_].cpu().numpy()
+        kpts1 = kpts1[mask_].cpu().numpy()
 
-        if len(kpts0) == 0:
-            kpts0 = torch.tensor([[orig_width0//2,orig_height0//2]],dtype=kpts0.dtype,device=kpts0.device)
-            kpts1 = torch.tensor([[orig_width1//2,orig_height1//2]],dtype=kpts1.dtype,device=kpts1.device)
+        # if len(kpts0) == 0:
+        #     kpts0 = torch.tensor([[orig_width0//2,orig_height0//2]],dtype=kpts0.dtype,device=kpts0.device)
+        #     kpts1 = torch.tensor([[orig_width1//2,orig_height1//2]],dtype=kpts1.dtype,device=kpts1.device)
 
-        _, mask = cv2.findFundamentalMat(kpts0.cpu().detach().numpy(),
-                                        kpts1.cpu().detach().numpy(),
-                                        cv2.USAC_MAGSAC, ransacReprojThreshold=1.0,
-                                        confidence=0.999999, maxIters=10000)
-        mask = mask.ravel() > 0
+        # _, mask = cv2.findFundamentalMat(kpts0.cpu().detach().numpy(),
+        #                                 kpts1.cpu().detach().numpy(),
+        #                                 cv2.USAC_MAGSAC, ransacReprojThreshold=1.0,
+        #                                 confidence=0.999999, maxIters=10000)
+        # mask = mask.ravel() > 0
 
-        kpts0 = kpts0[mask].cpu().numpy()
-        kpts1 = kpts1[mask].cpu().numpy()
+        # kpts0 = kpts0[mask].cpu().numpy()
+        # kpts1 = kpts1[mask].cpu().numpy()
 
         # with open(output_path,'w') as f:
         #     for kpt0,kpt1 in zip(kpts0,kpts1):
