@@ -65,6 +65,7 @@ if __name__ == '__main__':
                         help='path to all images needed adjustment in a folder')
     options = parser.parse_args()
     file_list = os.listdir(options.root)
+    print(file_list)
     npy1_path = [os.path.join(options.root,i) for i in file_list if 'res_1' in i][0]
     npy2_path = [os.path.join(options.root,i) for i in file_list if 'res_2' in i][0]
     tif1_path = [os.path.join(options.root,i) for i in file_list if 'overlap_1' in i][0]

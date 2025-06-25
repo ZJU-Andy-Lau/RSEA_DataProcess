@@ -164,8 +164,8 @@ class ImageDataset(Dataset):
     
     def __getitem__(self, index):
         line,samp = self.coords[index]
-        img0 = self.image0.get_img((line,samp),(line + self.size,samp + self.size))
-        img1 = self.image1.get_img((line,samp),(line + self.size,samp + self.size))
+        img0 = self.image0.get_img((line,samp),(line + self.size - 1,samp + self.size - 1))
+        img1 = self.image1.get_img((line,samp),(line + self.size - 1,samp + self.size - 1))
 
         img0 = torch.from_numpy(img0)
         img1 = torch.from_numpy(img1)
@@ -323,6 +323,8 @@ def match(model:RoMa,tif_path0:str,tif_path1:str,output_path:str,batch_size = 8)
         for idx in range(imgs0.shape[0]):
             img0,img1,line,samp = imgs0[idx],imgs1[idx],lines[idx][0].item(),samps[idx][0].item()
             kpts0,kpts1 = match_one_pair(model,img0,img1)
+            kpts0 = kpts0[:,[1,0]]
+            kpts1 = kpts1[:,[1,0]]
             kpts0[:,0] += line
             kpts0[:,1] += samp
             kpts1[:,0] += line
@@ -360,7 +362,7 @@ def match(model:RoMa,tif_path0:str,tif_path1:str,output_path:str,batch_size = 8)
 
     with open(os.path.join(output_path,'match_res.txt'),'w') as f:
         for kpt0,kpt1,res in zip(kpts0_total,kpts1_total,residuals_total):
-            f.write(f"{kpt0[1]:.2f} {kpt0[0]:.2f} {kpt1[1]:.2f} {kpt1[0]:.2f} {res}\n")
+            f.write(f"{kpt0[0]:.2f} {kpt0[1]:.2f} {kpt1[0]:.2f} {kpt1[1]:.2f} {res}\n")
     
 
 
