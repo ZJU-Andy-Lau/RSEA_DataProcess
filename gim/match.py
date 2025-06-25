@@ -154,16 +154,15 @@ class ImageDataset(Dataset):
         if self.samps[-1] < self.W - self.size - 1:
             self.samps = np.append(self.samps,self.W - self.size - 1)
         
-        self.patch_num = len(self.lines) * len(self.samps)
+        self.coords = np.meshgrid(self.lines,self.samps,indexing='ij')
+        
+        self.patch_num = len(self.coords)
     
     def __len__(self):
         return self.patch_num
     
     def __getitem__(self, index):
-        line_idx = index // len(self.lines)
-        samp_idx = index % len(self.samps)
-        line = self.lines[line_idx]
-        samp = self.samps[samp_idx]
+        line,samp = self.coords[index]
         img0 = self.image0.get_img((line,samp),(line + self.size,samp + self.size))
         img1 = self.image1.get_img((line,samp),(line + self.size,samp + self.size))
 
