@@ -22,7 +22,7 @@ def convert_npy_to_geotiff(input_tif_path, input_npy_path, output_tif_path):
             width = src.width
 
         # 2. Load the NumPy array and replace NaNs with 0
-        npy_data = np.load(input_npy_path)
+        npy_data = np.load(input_npy_path).astype(np.uint8)
 
         # Ensure the NumPy array dimensions match the reference TIFF
         if npy_data.shape != (height, width):
@@ -32,7 +32,7 @@ def convert_npy_to_geotiff(input_tif_path, input_npy_path, output_tif_path):
             )
 
         # Replace NaN values with 0
-        npy_data = np.nan_to_num(npy_data, nan=0.0)
+        npy_data = np.nan_to_num(npy_data, nan=0)
 
         # Update the profile for the output TIFF
         profile.update(
