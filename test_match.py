@@ -101,7 +101,7 @@ class Image:
                 multispectral_data = self._src.read(window=window)
                 # 计算所有波段的平均值
                 img_data = np.mean(multispectral_data, axis=0).astype(multispectral_data.dtype)
-                img_data = np.stack([img_data]*3,axis=0)
+                img_data = np.stack([img_data]*3,axis=-1)
             
             # print(f"成功读取窗口 ({r_start},{c_start})-({r_end},{c_end})，返回形状: {img_data.shape}")
             return img_data
