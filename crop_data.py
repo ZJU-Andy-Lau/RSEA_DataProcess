@@ -97,6 +97,10 @@ def main(tif_paths,dem_path,residual_paths,output_folder,crop_size = 3000):
     samp_step = (W - crop_size) // ((W - crop_size) // init_step)
     lines = np.arange(0,H - crop_size,line_step)
     samps = np.arange(0,W - crop_size,samp_step)
+    if lines[-1] < H - crop_size - 1:
+        lines = np.append(lines,H - crop_size - 1)
+    if samps[-1] < W - crop_size - 1:
+        samps = np.append(samps,W - crop_size - 1)
     pbar = tqdm(total=len(lines) * len(samps))
 
     for line in lines:
