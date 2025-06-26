@@ -6,6 +6,45 @@ import cv2
 import os
 import argparse
 from tqdm import tqdm
+import torch
+
+def wgs84_to_web_mercator_cuda(lon: np.ndarray, lat: np.ndarray) -> np.ndarray:
+    """
+    使用 PyTorch 和 CUDA 将 WGS84 经纬度批量转换为 Web Mercator (EPSG:3857) 投影坐标。
+    假设输入经纬度已是度数。
+
+    参数:
+    lon (torch.Tensor): 经度张量 (度数)。可以是一维或多维。
+    lat (torch.Tensor): 纬度张量 (度数)。与经度张量形状相同。
+
+    返回:
+    torch.Tensor: Web Mercator 投影坐标张量，形状为 (..., 2)，其中最后一维是 [X, Y]。
+    """
+    lon,lat = torch.from_numpy(lon).cuda(),torch.from_numpy(lat).cuda()
+    # 将经纬度从度转换为弧度
+    lon_rad = torch.deg2rad(lon)
+    lat_rad = torch.deg2rad(lat)
+
+    # Web Mercator 球体半径 (WGS84 半长轴)
+    R = 6378137.0
+    
+    # X 坐标
+    x = R * lon_rad
+
+    # Y 坐标
+    # 确保纬度在合理范围内，避免 tan 或 log 出现无穷大
+    # 理论上，Web Mercator 的纬度范围约为 -85.05112878 到 85.05112878 度。
+    # 钳制纬度可以防止数值不稳定。
+    max_lat_rad = torch.deg2rad(torch.tensor(85.05112878)).cuda()
+    min_lat_rad = torch.deg2rad(torch.tensor(-85.05112878)).cuda()
+    lat_rad = torch.clamp(lat_rad, min=min_lat_rad, max=max_lat_rad)
+
+    y = R * torch.log(torch.tan(np.pi / 4 + lat_rad / 2))
+
+    # 堆叠 X 和 Y 坐标，形成 (..., 2) 的张量
+    web_mercator_coords = torch.stack((x, y), dim=-1).cpu().numpy()
+    
+    return web_mercator_coords
 
 def crop_data(tif_srcs,dem_src,residuals,tl,br):
     H,W = br[0] - tl[0], br[1] - tl[1]
@@ -22,6 +61,11 @@ def crop_data(tif_srcs,dem_src,residuals,tl,br):
     local = np.stack([row_indices,col_indices],axis=-1)
 
     src = tif_srcs[0]
+    if src.crs != CRS("EPSG:4326"):
+        print("输入影像坐标系不是WGS84，需要进行转换")
+        exit()
+
+
     coords = np.full((H,W,2),np.nan,dtype=np.float64)
 
     for row_idx in range(H):
@@ -34,14 +78,17 @@ def crop_data(tif_srcs,dem_src,residuals,tl,br):
             coords[row_idx,col_idx,0] = x_center
             coords[row_idx,col_idx,1] = y_center
 
-    crs_ori = src.crs
-    crs_tgt = CRS("EPSG:4531")
+    coords_flat = coords.reshape(-1,2)
+    coords = wgs84_to_web_mercator_cuda(coords_flat[:,0],coords_flat[:,1])
 
-    if crs_ori != crs_tgt:
-        transformer = Transformer.from_crs(crs_ori,crs_tgt,always_xy=True)
-        coords_flat = coords.reshape(-1,2)
-        transformed_x,transformed_y = transformer.transform(coords_flat[:,0],coords_flat[:,1])
-        coords = np.stack([transformed_x,transformed_y],axis=-1).reshape(H,W,2)
+    # crs_ori = src.crs
+    # crs_tgt = CRS("EPSG:4531")
+
+    # if crs_ori != crs_tgt:
+    #     transformer = Transformer.from_crs(crs_ori,crs_tgt,always_xy=True)
+        
+    #     transformed_x,transformed_y = transformer.transform(coords_flat[:,0],coords_flat[:,1])
+    #     coords = np.stack([transformed_x,transformed_y],axis=-1).reshape(H,W,2)
     
     obj = np.concatenate([coords,croped_dem],axis=-1)
 
