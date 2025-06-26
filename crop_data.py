@@ -35,7 +35,7 @@ def wgs84_to_web_mercator_cuda(lon: np.ndarray, lat: np.ndarray) -> np.ndarray:
     lat_rad = torch.clamp(lat_rad, min=min_lat_rad, max=max_lat_rad)
 
     y = R * torch.log(torch.tan(np.pi / 4 + lat_rad / 2))
-    
+
     web_mercator_coords = torch.stack((x, y), dim=-1).cpu().numpy()
     
     return web_mercator_coords
@@ -46,6 +46,10 @@ def crop_data(tif_srcs,dem_src,residuals,tl,br):
     croped_tifs = [src.read(window = window)[0,:H,:W] for src in tif_srcs]
     croped_dem = dem_src.read(window = window).transpose(1,2,0)[:H,:W]
     croped_residuals = [res[tl[0]:br[0],tl[1]:br[1]] for res in residuals]
+
+    if not ((croped_dem.shape == croped_tifs[0].shape) and (croped_dem.shape == croped_residuals[0].shape)):
+        print(f"裁切尺寸出错! tif shape:{croped_tifs[0].shape} \t dem shape:{croped_dem.shape} \t residual shape:{croped_residuals[0].shape}")
+        exit()
 
     row_indices,col_indices = np.meshgrid(
             np.arange(tl[0],br[0]),
@@ -82,6 +86,7 @@ def main(tif_paths,dem_path,residual_paths,output_folder,crop_size = 3000):
     n = len(tif_paths)
     
     H,W = tif_srcs[0].height,tif_srcs[0].width
+    print(f"已读入 {n} 张影像，H = {H} \t W = {W}")
     init_step = crop_size // 2
     line_step = (H - crop_size) // ((H - crop_size) // init_step)
     samp_step = (W - crop_size) // ((W - crop_size) // init_step)
@@ -100,6 +105,7 @@ def main(tif_paths,dem_path,residual_paths,output_folder,crop_size = 3000):
                 cv2.imwrite(os.path.join(output_path,f'iamge_{i}.png'),croped_tifs[i])
                 np.save(os.path.join(output_path,f'residual_{i}.npy'),croped_residuals[i])
             pbar.update(1)
+            pbar.set_postfix({"line":line,"samp":samp})
 
 
 
