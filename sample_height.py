@@ -126,10 +126,9 @@ def generate_dem_with_gravity_anomaly(
             gravity_anomaly_data = src_gravity.read(1)
 
             rows, cols = np.indices((height, width))
-            x_coords, y_coords = rasterio.transform.xy(transform, rows, cols)
-            
-            x_flat = x_coords.flatten()
-            y_flat = y_coords.flatten()
+            x_coords_grid, y_coords_grid = rasterio.transform.xy(transform, rows, cols)
+            x_flat = np.array(x_coords_grid).flatten()
+            y_flat = np.array(y_coords_grid).flatten()
             
             gravity_transform = src_gravity.transform
             gravity_crs = src_gravity.crs
