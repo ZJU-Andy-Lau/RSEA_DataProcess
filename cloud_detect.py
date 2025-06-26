@@ -35,7 +35,7 @@ def calculate_cloud_percentage(image_path):
         # cv2.THRESH_BINARY 表示大于阈值的像素设置为最大值（255），否则设置为0
         # cv2.THRESH_OTSU 表示使用Otsu's方法自动寻找阈值
         ret, binary_image = cv2.threshold(enhanced_image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        print(f"图像 {os.path.basename(image_path)} 的 Otsu 阈值为: {ret}")
+        # print(f"图像 {os.path.basename(image_path)} 的 Otsu 阈值为: {ret}")
 
         # 4. (可选) 形态学操作：去除噪声和填充小空洞
         # 定义结构元素 (通常是矩形或椭圆形)
@@ -67,9 +67,14 @@ if __name__ == '__main__':
 
     folders = os.listdir(options.root)
     folders = sorted(folders,key=int)
+    output = ""
 
     for folder in folders:
         cp1 = calculate_cloud_percentage(os.path.join(options.root,folder,'image_0.png'))
         cp2 = calculate_cloud_percentage(os.path.join(options.root,folder,'image_1.png'))
         print(folder,max(cp1,cp2))
+        output += f"{folder} \t {max(cp1,cp2)} \n"
+    
+    with open('./cloud_report.txt','w') as f:
+        f.write(output)
     
