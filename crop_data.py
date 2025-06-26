@@ -7,6 +7,7 @@ import os
 import argparse
 from tqdm import tqdm
 import torch
+import time
 
 def wgs84_to_web_mercator_cuda(lon: np.ndarray, lat: np.ndarray) -> np.ndarray:
     """
@@ -47,11 +48,14 @@ def wgs84_to_web_mercator_cuda(lon: np.ndarray, lat: np.ndarray) -> np.ndarray:
     return web_mercator_coords
 
 def crop_data(tif_srcs,dem_src,residuals,tl,br):
+    t0 = time.perf_counter()
     H,W = br[0] - tl[0], br[1] - tl[1]
     window = Window(tl[1],tl[0],W,H)
     croped_tifs = [src.read(window = window)[0,:H,:W] for src in tif_srcs]
     croped_dem = dem_src.read(window = window).transpose(1,2,0)[:H,:W]
     croped_residuals = [res[tl[0]:br[0],tl[1]:br[1]] for res in residuals]
+    t1 = time.perf_counter()
+    print("t1:",t1 - t0)
 
     row_indices,col_indices = np.meshgrid(
             np.arange(tl[0],br[0]),
@@ -59,6 +63,9 @@ def crop_data(tif_srcs,dem_src,residuals,tl,br):
             indexing='ij'
         )
     local = np.stack([row_indices,col_indices],axis=-1)
+
+    t2 = time.perf_counter()
+    print("t2:",t2 - t1)
 
     src = tif_srcs[0]
     if src.crs != CRS("EPSG:4326"):
@@ -78,8 +85,14 @@ def crop_data(tif_srcs,dem_src,residuals,tl,br):
             coords[row_idx,col_idx,0] = x_center
             coords[row_idx,col_idx,1] = y_center
 
+    t3 = time.perf_counter()
+    print("t3:",t3 - t2)
+
     coords_flat = coords.reshape(-1,2)
-    coords = wgs84_to_web_mercator_cuda(coords_flat[:,0],coords_flat[:,1])
+    coords = wgs84_to_web_mercator_cuda(coords_flat[:,0],coords_flat[:,1]).reshape(H,W,2)
+
+    t4 = time.perf_counter()
+    print("t4:",t4 - t3)
 
     # crs_ori = src.crs
     # crs_tgt = CRS("EPSG:4531")
