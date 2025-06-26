@@ -43,11 +43,8 @@ def wgs84_to_web_mercator_cuda(lon: np.ndarray, lat: np.ndarray) -> np.ndarray:
 def crop_data(tif_srcs,dem_src,residuals,tl,br):
     H,W = br[0] - tl[0], br[1] - tl[1]
     window = Window(tl[1],tl[0],W,H)
-    print("window:",window)
     croped_tifs = [src.read(window = window)[0,:H,:W] for src in tif_srcs]
     croped_dem = dem_src.read(window = window)[0,:H,:W]
-    print(H,W)
-    print("1",croped_dem.shape,croped_tifs[0].shape)
     croped_residuals = [res[tl[0]:br[0],tl[1]:br[1]] for res in residuals]
 
     if not ((croped_dem.shape[:2] == croped_tifs[0].shape[:2]) and (croped_dem.shape[:2] == croped_residuals[0].shape[:2])):
@@ -77,13 +74,8 @@ def crop_data(tif_srcs,dem_src,residuals,tl,br):
     lons,lats = transform_window * (col_coords_center, row_coords_center)
 
     coords = wgs84_to_web_mercator_cuda(lons,lats).reshape(H,W,2)
-    print("2",croped_dem.shape)
   
-    try:
-        obj = np.concatenate([coords,croped_dem[:,:,None]],axis=-1)
-    except Exception as e:
-        print("lons:",lons.shape,"lats:",lats.shape)
-        print("coords:",coords.shape,"dem:",croped_dem.shape)
+    obj = np.concatenate([coords,croped_dem[:,:,None]],axis=-1)
 
     return croped_tifs,croped_residuals,local,obj
 
@@ -103,12 +95,13 @@ def main(tif_paths,dem_path,residual_paths,output_folder,crop_size = 3000):
     init_step = crop_size // 2
     line_step = (H - crop_size) // ((H - crop_size) // init_step)
     samp_step = (W - crop_size) // ((W - crop_size) // init_step)
-    lines = np.arange(0,H,line_step)
-    samps = np.arange(0,W,samp_step)
+    lines = np.arange(0,H - crop_size,line_step)
+    samps = np.arange(0,W - crop_size,samp_step)
     pbar = tqdm(total=len(lines) * len(samps))
 
     for line in lines:
         for samp in samps:
+            pbar.set_postfix({"line":line,"samp":samp})
             croped_tifs,croped_residuals,local,obj = crop_data(tif_srcs,dem_src,residuals,[line,samp],[line + crop_size,samp + crop_size])
             output_path = os.path.join(output_folder,f"{line}_{samp}")
             os.makedirs(output_path,exist_ok=True)
@@ -118,7 +111,7 @@ def main(tif_paths,dem_path,residual_paths,output_folder,crop_size = 3000):
                 cv2.imwrite(os.path.join(output_path,f'iamge_{i}.png'),croped_tifs[i])
                 np.save(os.path.join(output_path,f'residual_{i}.npy'),croped_residuals[i])
             pbar.update(1)
-            pbar.set_postfix({"line":line,"samp":samp})
+            
 
 
 
