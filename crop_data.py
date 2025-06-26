@@ -109,11 +109,11 @@ def main(tif_paths,dem_path,residual_paths,output_folder,crop_size = 3000):
             croped_tifs,croped_residuals,local,obj = crop_data(tif_srcs,dem_src,residuals,[line,samp],[line + crop_size,samp + crop_size])
             output_path = os.path.join(output_folder,f"{line}_{samp}")
             os.makedirs(output_path,exist_ok=True)
-            np.save(os.path.join(output_path,'local.npy'),local)
-            np.save(os.path.join(output_path,'obj.npy'),obj)
+            np.save(os.path.join(output_path,'local.npy'),local.astype(np.float32))
+            np.save(os.path.join(output_path,'obj.npy'),obj.astype(np.float32))
             for i in range(n):
-                cv2.imwrite(os.path.join(output_path,f'iamge_{i}.png'),croped_tifs[i])
-                np.save(os.path.join(output_path,f'residual_{i}.npy'),croped_residuals[i])
+                cv2.imwrite(os.path.join(output_path,f'iamge_{i}.png'),croped_tifs[i].astype(np.uint8))
+                np.save(os.path.join(output_path,f'residual_{i}.npy'),croped_residuals[i].astype(np.float32))
             pbar.update(1)
             
 
