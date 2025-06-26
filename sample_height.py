@@ -37,8 +37,8 @@ def generate_dem_with_gravity_anomaly(
             transform = src_rs.transform
             width = src_rs.width
             height = src_rs.height
-            bounds = src_rs.bounds  # 获取遥感影像的边界框
-            print(f"遥感影像信息：CRS={crs}, 宽度={width}, 高度={height}, 边界={bounds}")
+            rs_bounds = src_rs.bounds  # 获取遥感影像的边界框
+            print(f"遥感影像信息：CRS={crs}, 宽度={width}, 高度={height}, 边界={rs_bounds}")
     except rasterio.errors.RasterioIOError as e:
         print(f"错误: 无法打开遥感影像文件 {remote_sensing_image_path}。请检查路径或文件是否损坏。")
         raise e
@@ -55,41 +55,29 @@ def generate_dem_with_gravity_anomaly(
     print(f"找到 {len(dem_files)} 个DEM文件，开始筛选并重采样整合...")
 
     processed_dem_count = 0
+    
+    # 将遥感影像的边界框解包，方便后续比较
+    rs_left, rs_bottom, rs_right, rs_top = rs_bounds.left, rs_bounds.bottom, rs_bounds.right, rs_bounds.top
+
     for i, dem_file in enumerate(dem_files):
         try:
             with rasterio.open(dem_file) as src_dem:
                 dem_bounds = src_dem.bounds # 获取当前DEM的边界框
+                dem_left, dem_bottom, dem_right, dem_top = dem_bounds.left, dem_bounds.bottom, dem_bounds.right, dem_bounds.top
 
-                # **关键优化：判断DEM与遥感影像的边界框是否有重叠**
-                # 注意：这里需要确保两个bounds在同一个CRS下进行比较。
-                # 由于我们后续会reproject，这里假设可以进行粗略比较，
-                # 或者更严谨的做法是将其中一个bounds转换到另一个CRS，但通常这会增加复杂性。
-                # 简单起见，我们先直接比较。
+                # **修正关键优化：手动判断DEM与遥感影像的边界框是否有重叠**
+                # 假设DEM和遥感影像的CRS是兼容的，或者说它们的地理坐标系是一致的
+                # 如果CRS不同，更严谨的做法是先用rasterio.warp.transform_bounds将dem_bounds转换到rs_bounds的CRS下再比较
                 
-                # rasterio的Bounds对象有一个intersects方法，可以直接判断是否相交
-                # 或者手动判断：
-                # dem_left, dem_bottom, dem_right, dem_top = dem_bounds
-                # rs_left, rs_bottom, rs_right, rs_top = bounds
-                # has_overlap = not (dem_right < rs_left or dem_left > rs_right or
-                #                    dem_top < rs_bottom or dem_bottom > rs_top)
+                # 判断两个矩形是否不重叠的条件
+                # (一个矩形在另一个的左边 OR 右边 OR 上面 OR 下面)
+                no_overlap = (dem_right <= rs_left or  # DEM在RS左边
+                              dem_left >= rs_right or  # DEM在RS右边
+                              dem_top <= rs_bottom or  # DEM在RS下面 (地理坐标系中，y值越小越靠南)
+                              dem_bottom >= rs_top)    # DEM在RS上面
 
-                # 使用rasterio.intersects，它更健壮且考虑了CRS差异（如果指定了）
-                # 但为了准确性，通常需要先将DEM的bounds投影到遥感影像的CRS
-                # 这里我们假设DEM和遥感影像的CRS是兼容的（或者大部分重叠判断在这种情况下是有效的）
-                # 更严谨的做法是：
-                # from rasterio.warp import transform_bounds
-                # dem_bounds_in_rs_crs = transform_bounds(src_dem.crs, crs,
-                #                                          dem_bounds.left, dem_bounds.bottom,
-                #                                          dem_bounds.right, dem_bounds.top)
-                # if not bounds.intersects(rasterio.coords.BoundingBox(*dem_bounds_in_rs_crs)):
-                #     print(f"  - DEM文件 {os.path.basename(dem_file)} 没有与遥感影像重叠，跳过。")
-                #     continue
-                
-                # 简化处理：直接使用rasterio.bounds的intersects方法，它在内部会处理不同CRS的情况
-                # 但需要注意，如果CRS差异很大，直接比较可能会有误差，建议使用transform_bounds更精确
-                
-                if not bounds.intersects(dem_bounds):
-                    print(f"  - DEM文件 {os.path.basename(dem_file)} ({dem_bounds}) 没有与遥感影像 ({bounds}) 重叠，跳过。")
+                if no_overlap:
+                    print(f"  - DEM文件 {os.path.basename(dem_file)} ({dem_bounds}) 没有与遥感影像 ({rs_bounds}) 重叠，跳过。")
                     continue
 
                 print(f"  - DEM文件 {i+1}/{len(dem_files)}: {os.path.basename(dem_file)} 与遥感影像有重叠，开始处理。")
@@ -115,16 +103,9 @@ def generate_dem_with_gravity_anomaly(
                 
                 # 将重采样后的DEM数据合并到目标DEM数组中
                 nan_mask = np.isnan(target_dem_data)
-                # 只有当目标位置是NaN且重采样后的DEM有值时才填充
                 valid_reprojected = ~np.isnan(reprojected_dem_data)
                 target_dem_data[nan_mask & valid_reprojected] = reprojected_dem_data[nan_mask & valid_reprojected]
                 
-                # 如果需要处理重叠区域的合并逻辑（例如平均值），可以在这里添加
-                # 例如：
-                # overlap_mask = (~nan_mask) & valid_reprojected
-                # target_dem_data[overlap_mask] = (target_dem_data[overlap_mask] + reprojected_dem_data[overlap_mask]) / 2.0
-
-
         except rasterio.errors.RasterioIOError as e:
             print(f"错误: 无法打开或处理DEM文件 {dem_file}。跳过此文件。错误信息: {e}")
         except Exception as e:
@@ -140,6 +121,8 @@ def generate_dem_with_gravity_anomaly(
     # 3. 重力异常数据采样与叠加 (与之前代码相同)
     try:
         with rasterio.open(gravity_anomaly_image_path) as src_gravity:
+            # 读取重力异常数据，如果它很大，这里可以考虑只读取重叠区域
+            # 但为了简化，我们先假设可以加载
             gravity_anomaly_data = src_gravity.read(1)
 
             rows, cols = np.indices((height, width))
@@ -166,10 +149,10 @@ def generate_dem_with_gravity_anomaly(
                 val[0] for val in src_gravity.sample(zip(x_gravity_coords, y_gravity_coords))
             ]).reshape(height, width)
             
-            if target_dem_data.dtype != sampled_gravity_values.dtype:
-                target_dem_data = target_dem_data.astype(sampled_gravity_values.dtype)
-                
-            target_dem_data += sampled_gravity_values
+            # 确保数据类型兼容，并在叠加前处理NaN值，避免NaN + X = NaN
+            # 只有在target_dem_data不是NaN的地方才进行叠加
+            valid_dem_mask = ~np.isnan(target_dem_data)
+            target_dem_data[valid_dem_mask] += sampled_gravity_values[valid_dem_mask]
 
             print("重力异常数据采样并叠加完成。")
 
@@ -190,7 +173,7 @@ def generate_dem_with_gravity_anomaly(
             'transform': transform,
             'dtype': target_dem_data.dtype,
             'count': 1,
-            'nodata': np.nan # 可以根据需要设置NoData值，这里与初始化相同
+            'nodata': np.nan 
         }
 
         with rasterio.open(output_dem_path, 'w', **profile) as dst:
