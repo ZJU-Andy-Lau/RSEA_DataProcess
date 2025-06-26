@@ -44,7 +44,9 @@ def crop_data(tif_srcs,dem_src,residuals,tl,br):
     H,W = br[0] - tl[0], br[1] - tl[1]
     window = Window(tl[1],tl[0],W,H)
     croped_tifs = [src.read(window = window)[0,:H,:W] for src in tif_srcs]
-    croped_dem = dem_src.read(window = window).transpose(1,2,0)[:H,:W]
+    croped_dem = dem_src.read(window = window)[0,:H,:W]
+    print(H,W)
+    print("1",croped_dem.shape)
     croped_residuals = [res[tl[0]:br[0],tl[1]:br[1]] for res in residuals]
 
     if not ((croped_dem.shape[:2] == croped_tifs[0].shape[:2]) and (croped_dem.shape[:2] == croped_residuals[0].shape[:2])):
@@ -74,9 +76,10 @@ def crop_data(tif_srcs,dem_src,residuals,tl,br):
     lons,lats = transform_window * (col_coords_center, row_coords_center)
 
     coords = wgs84_to_web_mercator_cuda(lons,lats).reshape(H,W,2)
+    print("2",croped_dem.shape)
   
     try:
-        obj = np.concatenate([coords,croped_dem],axis=-1)
+        obj = np.concatenate([coords,croped_dem[:,:,None]],axis=-1)
     except Exception as e:
         print("lons:",lons.shape,"lats:",lats.shape)
         print("coords:",coords.shape,"dem:",croped_dem.shape)
