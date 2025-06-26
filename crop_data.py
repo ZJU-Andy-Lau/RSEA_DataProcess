@@ -75,7 +75,11 @@ def crop_data(tif_srcs,dem_src,residuals,tl,br):
 
     coords = wgs84_to_web_mercator_cuda(lons,lats).reshape(H,W,2)
   
-    obj = np.concatenate([coords,croped_dem],axis=-1)
+    try:
+        obj = np.concatenate([coords,croped_dem],axis=-1)
+    except Exception as e:
+        print("lons:",lons.shape,"lats:",lats.shape)
+        print("coords:",coords.shape,"dem:",croped_dem.shape)
 
     return croped_tifs,croped_residuals,local,obj
 
