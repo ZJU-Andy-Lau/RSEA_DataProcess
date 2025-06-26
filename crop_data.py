@@ -47,7 +47,7 @@ def crop_data(tif_srcs,dem_src,residuals,tl,br):
     croped_dem = dem_src.read(window = window).transpose(1,2,0)[:H,:W]
     croped_residuals = [res[tl[0]:br[0],tl[1]:br[1]] for res in residuals]
 
-    if not ((croped_dem.shape == croped_tifs[0].shape) and (croped_dem.shape == croped_residuals[0].shape)):
+    if not ((croped_dem.shape[:2] == croped_tifs[0].shape[:2]) and (croped_dem.shape[:2] == croped_residuals[0].shape[:2])):
         print(f"裁切尺寸出错! tif shape:{croped_tifs[0].shape} \t dem shape:{croped_dem.shape} \t residual shape:{croped_residuals[0].shape}")
         exit()
 
