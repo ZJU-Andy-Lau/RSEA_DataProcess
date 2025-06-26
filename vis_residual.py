@@ -117,5 +117,7 @@ if __name__ == '__main__':
     npy2_path = [os.path.join(options.root,i) for i in file_list if 'res_2' in i][0]
     tif1_path = [os.path.join(options.root,i) for i in file_list if 'overlap_1' in i][0]
     tif2_path = [os.path.join(options.root,i) for i in file_list if 'overlap_2' in i][0]
-    downsample_npy_and_save_geotiff(tif1_path,npy1_path,os.path.join(options.root,'res_vis_1.tif'))
-    downsample_npy_and_save_geotiff(tif2_path,npy2_path,os.path.join(options.root,'res_vis_2.tif'))
+    output_path = os.path.join(options.root,'res_vis')
+    os.makedirs(output_path,exist_ok=True)
+    downsample_npy_and_save_geotiff(tif1_path,npy1_path,os.path.join(output_path,'res_vis_1.tif'))
+    downsample_npy_and_save_geotiff(tif2_path,npy2_path,os.path.join(output_path,'res_vis_2.tif'))
