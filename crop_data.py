@@ -112,7 +112,7 @@ def main(tif_paths,dem_path,residual_paths,output_folder,crop_size = 3000):
             np.save(os.path.join(output_path,'local.npy'),local.astype(np.float32))
             np.save(os.path.join(output_path,'obj.npy'),obj.astype(np.float32))
             for i in range(n):
-                cv2.imwrite(os.path.join(output_path,f'iamge_{i}.png'),croped_tifs[i].astype(np.uint8))
+                cv2.imwrite(os.path.join(output_path,f'image_{i}.png'),croped_tifs[i].astype(np.uint8))
                 np.save(os.path.join(output_path,f'residual_{i}.npy'),croped_residuals[i].astype(np.float32))
             pbar.update(1)
             
