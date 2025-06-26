@@ -5,6 +5,7 @@ from pyproj import CRS, Transformer
 import cv2
 import os
 import argparse
+from tqdm import tqdm
 
 def crop_data(tif_srcs,dem_src,residuals,tl,br):
     H,W = br[0] - tl[0], br[1] - tl[1]
@@ -56,9 +57,12 @@ def main(tif_paths,dem_path,residual_paths,output_folder,crop_size = 3000):
     init_step = crop_size // 2
     line_step = (H - crop_size) // ((H - crop_size) // init_step)
     samp_step = (W - crop_size) // ((W - crop_size) // init_step)
+    lines = np.arange(0,H,line_step)
+    samps = np.arange(0,W,samp_step)
+    pbar = tqdm(total=len(lines) * len(samps))
 
-    for line in range(0,H,line_step):
-        for samp in range(0,W,samp_step):
+    for line in lines:
+        for samp in samps:
             croped_tifs,croped_residuals,local,obj = crop_data(tif_srcs,dem_src,residuals,[line,samp],[line + crop_size,samp + crop_size])
             output_path = os.path.join(output_folder,f"{line}_{samp}")
             os.makedirs(output_path,exist_ok=True)
@@ -67,6 +71,7 @@ def main(tif_paths,dem_path,residual_paths,output_folder,crop_size = 3000):
             for i in range(n):
                 cv2.imwrite(os.path.join(output_path,f'iamge_{i}.png'),croped_tifs[i])
                 np.save(os.path.join(output_path,f'residual_{i}.npy'),croped_residuals[i])
+            pbar.update(1)
 
 
 
