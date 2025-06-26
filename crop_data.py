@@ -71,25 +71,34 @@ def crop_data(tif_srcs,dem_src,residuals,tl,br):
     if src.crs != CRS("EPSG:4326"):
         print("输入影像坐标系不是WGS84，需要进行转换")
         exit()
+    
+    transform_window = src.window_transform(window)
 
+    # coords = np.full((H,W,2),np.nan,dtype=np.float64)
 
-    coords = np.full((H,W,2),np.nan,dtype=np.float64)
+    col_coords_center, row_coords_center = np.meshgrid(
+            np.arange(W) + 0.5, 
+            np.arange(H) + 0.5, 
+            indexing='xy' # 确保 (col, row) 顺序对应 Affine.transform
+        )
+    
+    lons,lats = transform_window * (col_coords_center, row_coords_center)
 
-    for row_idx in range(H):
-        for col_idx in range(W):
-            row_ori = tl[0] + row_idx
-            col_ori = tl[1] + col_idx
+    # for row_idx in range(H):
+    #     for col_idx in range(W):
+    #         row_ori = tl[0] + row_idx
+    #         col_ori = tl[1] + col_idx
 
-            x_center,y_center = src.xy(row_ori + .5, col_ori + .5)
+    #         x_center,y_center = src.xy(row_ori + .5, col_ori + .5)
 
-            coords[row_idx,col_idx,0] = x_center
-            coords[row_idx,col_idx,1] = y_center
+    #         coords[row_idx,col_idx,0] = x_center
+    #         coords[row_idx,col_idx,1] = y_center
 
     t3 = time.perf_counter()
     print("t3:",t3 - t2)
 
-    coords_flat = coords.reshape(-1,2)
-    coords = wgs84_to_web_mercator_cuda(coords_flat[:,0],coords_flat[:,1]).reshape(H,W,2)
+    # coords_flat = coords.reshape(-1,2)
+    coords = wgs84_to_web_mercator_cuda(lons,lats).reshape(H,W,2)
 
     t4 = time.perf_counter()
     print("t4:",t4 - t3)
