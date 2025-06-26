@@ -197,7 +197,7 @@ if __name__ == "__main__":
                         help='path to all images needed adjustment in a folder')
     options = parser.parse_args()
 
-    remote_sensing_image = [os.path.join(options.root,i) for i in os.listdir(options.root) if 'overlay_1' in i][0]
+    remote_sensing_image = [os.path.join(options.root,i) for i in os.listdir(options.root) if 'overlap_1' in i][0]
     dem_folder = './data/dem_repo'
     gravity_anomaly_image = './data/egm.tif'
     output_dem_file = os.path.join(options.root,'dem.tif')
