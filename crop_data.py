@@ -43,10 +43,11 @@ def wgs84_to_web_mercator_cuda(lon: np.ndarray, lat: np.ndarray) -> np.ndarray:
 def crop_data(tif_srcs,dem_src,residuals,tl,br):
     H,W = br[0] - tl[0], br[1] - tl[1]
     window = Window(tl[1],tl[0],W,H)
+    print("window:",window)
     croped_tifs = [src.read(window = window)[0,:H,:W] for src in tif_srcs]
     croped_dem = dem_src.read(window = window)[0,:H,:W]
     print(H,W)
-    print("1",croped_dem.shape)
+    print("1",croped_dem.shape,croped_tifs[0].shape)
     croped_residuals = [res[tl[0]:br[0],tl[1]:br[1]] for res in residuals]
 
     if not ((croped_dem.shape[:2] == croped_tifs[0].shape[:2]) and (croped_dem.shape[:2] == croped_residuals[0].shape[:2])):
