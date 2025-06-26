@@ -5,6 +5,7 @@ import rasterio.errors
 import numpy as np
 import os
 from glob import glob
+import argparse
 
 def generate_dem_with_gravity_anomaly(
     remote_sensing_image_path: str,
@@ -191,101 +192,15 @@ def generate_dem_with_gravity_anomaly(
 
 # --- 使用示例 ---
 if __name__ == "__main__":
-    # 请根据您的实际文件路径修改以下变量
-    remote_sensing_image = "path/to/your/remote_sensing_image.tif"
-    dem_folder = "path/to/your/dem_folder"
-    gravity_anomaly_image = "path/to/your/gravity_anomaly.tif"
-    output_dem_file = "path/to/your/output_dem_with_gravity.tif"
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--root', type=str,
+                        help='path to all images needed adjustment in a folder')
+    options = parser.parse_args()
 
-    # 创建一些虚拟文件和文件夹用于测试
-    # 实际使用时请替换为真实数据
-    
-    # 模拟创建一个遥感影像
-    if not os.path.exists(remote_sensing_image):
-        print(f"创建模拟遥感影像: {remote_sensing_image}")
-        with rasterio.open(
-            remote_sensing_image,
-            'w',
-            driver='GTiff',
-            height=100,
-            width=100,
-            count=1,
-            dtype=rasterio.float32,
-            crs='EPSG:4326',
-            transform=Affine(0.1, 0, -10, 0, -0.1, 40), # 示例transform
-        ) as dst:
-            dst.write(np.random.rand(100, 100), 1)
-
-    # 模拟创建DEM文件夹和DEM文件
-    dem_sub_folder1 = os.path.join(dem_folder, "dem_set_1")
-    dem_sub_folder2 = os.path.join(dem_folder, "dem_set_2")
-    os.makedirs(dem_sub_folder1, exist_ok=True)
-    os.makedirs(dem_sub_folder2, exist_ok=True)
-
-    dem_file1 = os.path.join(dem_sub_folder1, "dem_part_a.tif")
-    dem_file2 = os.path.join(dem_sub_folder2, "dem_part_b.tif")
-    dem_file3 = os.path.join(dem_sub_folder2, "dem_part_c.tif")
-
-    if not os.path.exists(dem_file1):
-        print(f"创建模拟DEM文件: {dem_file1}")
-        with rasterio.open(
-            dem_file1,
-            'w',
-            driver='GTiff',
-            height=50,
-            width=50,
-            count=1,
-            dtype=rasterio.float32,
-            crs='EPSG:4326',
-            transform=Affine(0.1, 0, -9, 0, -0.1, 39), # 示例transform
-        ) as dst:
-            dst.write(np.random.rand(50, 50) * 100 + 500, 1) # 模拟高程数据
-
-    if not os.path.exists(dem_file2):
-        print(f"创建模拟DEM文件: {dem_file2}")
-        with rasterio.open(
-            dem_file2,
-            'w',
-            driver='GTiff',
-            height=60,
-            width=60,
-            count=1,
-            dtype=rasterio.float32,
-            crs='EPSG:4326',
-            transform=Affine(0.1, 0, -11, 0, -0.1, 41), # 示例transform
-        ) as dst:
-            dst.write(np.random.rand(60, 60) * 100 + 600, 1)
-
-    if not os.path.exists(dem_file3):
-        print(f"创建模拟DEM文件: {dem_file3}")
-        with rasterio.open(
-            dem_file3,
-            'w',
-            driver='GTiff',
-            height=40,
-            width=40,
-            count=1,
-            dtype=rasterio.float32,
-            crs='EPSG:4326',
-            transform=Affine(0.1, 0, -8, 0, -0.1, 38), # 示例transform
-        ) as dst:
-            dst.write(np.random.rand(40, 40) * 100 + 400, 1)
-
-    # 模拟创建重力异常数据
-    if not os.path.exists(gravity_anomaly_image):
-        print(f"创建模拟重力异常影像: {gravity_anomaly_image}")
-        with rasterio.open(
-            gravity_anomaly_image,
-            'w',
-            driver='GTiff',
-            height=200,
-            width=200,
-            count=1,
-            dtype=rasterio.float32,
-            crs='EPSG:4326',
-            transform=Affine(0.05, 0, -12, 0, -0.05, 42), # 示例transform
-        ) as dst:
-            dst.write(np.random.rand(200, 200) * 10 - 5, 1) # 模拟重力异常值
+    remote_sensing_image = [os.path.join(options.root,i) for i in os.listdir(options.root) if 'overlay_1' in i][0]
+    dem_folder = './data/dem_repo'
+    gravity_anomaly_image = './data/egm.tif'
+    output_dem_file = os.path.join(options.root,'dem.tif')
 
     # 确保输出文件夹存在
     os.makedirs(os.path.dirname(output_dem_file), exist_ok=True)
@@ -300,14 +215,3 @@ if __name__ == "__main__":
         print("\n函数执行完毕。请检查输出文件。")
     except Exception as e:
         print(f"\n函数执行失败: {e}")
-
-    # 清理模拟文件 (可选)
-    # import shutil
-    # if os.path.exists(remote_sensing_image):
-    #     os.remove(remote_sensing_image)
-    # if os.path.exists(dem_folder):
-    #     shutil.rmtree(dem_folder)
-    # if os.path.exists(gravity_anomaly_image):
-    #     os.remove(gravity_anomaly_image)
-    # if os.path.exists(output_dem_file):
-    #     os.remove(output_dem_file)
