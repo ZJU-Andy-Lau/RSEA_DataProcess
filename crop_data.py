@@ -95,8 +95,10 @@ def main(tif_paths,dem_path,residual_paths,output_folder,crop_size = 3000):
     H,W = tif_srcs[0].height,tif_srcs[0].width
     if dem_src.height != H or dem_src.width != W:
         print(f"dem 尺寸不匹配: ({dem_src.height},{dem_src.width}) \t ({H},{W})")
+        exit()
 
     print(f"已读入 {n} 张影像，H = {H} \t W = {W}")
+    print(dem_src.height,dem_src.width)
     init_step = crop_size // 2
     line_step = (H - crop_size) // ((H - crop_size) // init_step)
     samp_step = (W - crop_size) // ((W - crop_size) // init_step)
