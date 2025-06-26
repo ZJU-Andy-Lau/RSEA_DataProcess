@@ -65,7 +65,8 @@ if __name__ == '__main__':
                         help='path to all images needed adjustment in a folder')
     options = parser.parse_args()
 
-    folders = os.listdir(options.root).sort()
+    folders = os.listdir(options.root)
+    folders = sorted(folders,key=int)
 
     for folder in folders:
         cp1 = calculate_cloud_percentage(os.path.join(options.root,folder,'image_0.png'))
