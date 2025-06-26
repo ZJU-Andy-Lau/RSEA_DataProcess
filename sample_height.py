@@ -1,5 +1,5 @@
 import rasterio
-from rasterio.warp import reproject, Resampling
+from rasterio.warp import reproject, Resampling, transform_bounds 
 from rasterio.transform import Affine
 import rasterio.errors
 import numpy as np
