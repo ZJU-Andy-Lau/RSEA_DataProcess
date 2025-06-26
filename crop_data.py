@@ -31,8 +31,8 @@ def crop_data(tif_srcs,dem_src,residuals,tl,br):
 
             x_center,y_center = src.xy(row_ori + .5, col_ori + .5)
 
-            coords[row_ori,col_ori,0] = x_center
-            coords[row_ori,col_ori,1] = y_center
+            coords[row_idx,col_idx,0] = x_center
+            coords[row_idx,col_idx,1] = y_center
 
     crs_ori = src.crs
     crs_tgt = CRS("EPSG:4531")
