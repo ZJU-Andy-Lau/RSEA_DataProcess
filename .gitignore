@@ -1,1 +1,4 @@
 test_data
+weights/
+datasets/
+gim/__pycache__
