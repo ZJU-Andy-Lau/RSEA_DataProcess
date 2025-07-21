@@ -147,7 +147,7 @@ def match_img(model:RegressionMatcher,img1:np.ndarray,img2:np.ndarray):
 def get_residuals(model:RegressionMatcher,imgs:List[np.ndarray]):
     H,W = 3000,3000
     img_num = len(imgs)
-    residuals = [np.full((H,W),np.nan,dtype=np.float32) for i in range(img_num)]
+    residuals = [np.full((H,W),0.,dtype=np.float32) for i in range(img_num)]
     counts = [np.full((H,W),0,dtype=np.float32) for i in range(img_num)]
     for i in range(img_num-1):
         for j in range(i+1,img_num):
@@ -168,6 +168,7 @@ def get_residuals(model:RegressionMatcher,imgs:List[np.ndarray]):
         count = counts[i]
         valid_mask = count > 0
         residuals[i][valid_mask] /= count[valid_mask]
+        residuals[i][~valid_mask] = np.nan
 
     return residuals
 
