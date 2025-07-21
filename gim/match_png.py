@@ -95,7 +95,6 @@ def match_one_pair(model:RegressionMatcher,image0,image1):
     kpts1 = sparse_matches[:, 2:]
     kpts1 = torch.stack((
         width1 * (kpts1[:, 0] + 1) / 2, height1 * (kpts1[:, 1] + 1) / 2), dim=-1,)
-    b_ids = torch.where(mconf[None])[0]
 
     # before padding
     kpts0 -= kpts0.new_tensor((pad_left0, pad_top0))[None]
@@ -110,8 +109,7 @@ def match_one_pair(model:RegressionMatcher,image0,image1):
             (kpts0[:, 1] <= (orig_height0 - 1)) & \
             (kpts1[:, 1] <= (orig_height1 - 1))
 
-    mconf = mconf[mask_]
-    b_ids = b_ids[mask_]
+    # mconf = mconf[mask_]
     kpts0 = kpts0[mask_].cpu().numpy()
     kpts1 = kpts1[mask_].cpu().numpy()
 
@@ -147,13 +145,15 @@ def match_img(model:RegressionMatcher,img1:np.ndarray,img2:np.ndarray):
     return np.concatenate(kpts1_total,axis=0),np.concatenate(kpts2_total,axis=0)
 
 def get_residuals(model:RegressionMatcher,imgs:List[np.ndarray]):
-    H,W = imgs[0].shape[:2]
+    H,W = 3000,3000
     img_num = len(imgs)
     residuals = [np.full((H,W),np.nan,dtype=np.float32) for i in range(img_num)]
     for i in range(img_num-1):
         for j in range(i+1,img_num):
             print(f"matching img{i+1} and img{j+1}")
-            kpts_i,kpts_j = match_img(model,imgs[i],imgs[j])
+            img_i = cv2.imread(imgs[i],cv2.IMREAD_GRAYSCALE)
+            img_j = cv2.imread(imgs[j],cv2.IMREAD_GRAYSCALE)
+            kpts_i,kpts_j = match_img(model,img_i,img_j)
             dis = np.linalg.norm(kpts_i - kpts_j,axis=-1)
             idx_i = np.round(kpts_i).astype(int)
             idx_j = np.round(kpts_j).astype(int)
@@ -187,8 +187,8 @@ if __name__ == '__main__':
         print(f"processing {folder}")
         path = os.path.join(root,folder)
         names = [i.split('.png')[0] for i in os.listdir(path) if 'png' in i]
-        imgs = [cv2.imread(os.path.join(path,f'{name}.png'),cv2.IMREAD_GRAYSCALE) for name in names]
-        residuals = get_residuals(model,imgs)
+        img_paths = [os.path.join(path,f'{name}.png') for name in names]
+        residuals = get_residuals(model,img_paths)
 
         for i,residual in enumerate(residuals):
             np.save(os.path.join(path,f'{names[i]}_res.npy'),residual)
