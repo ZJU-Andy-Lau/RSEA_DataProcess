@@ -118,7 +118,7 @@ def match_one_pair(model:RegressionMatcher,image0,image1):
 def match_img(model:RegressionMatcher,img1:np.ndarray,img2:np.ndarray):
     H,W = img1.shape[:2]
     size = 672
-    step = size // 2
+    step = size
     line_num = max((H - size) // step,1)
     samp_num = max((W - size) // step,1)
     line_step = (H - size) // line_num
