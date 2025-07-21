@@ -148,6 +148,7 @@ def get_residuals(model:RegressionMatcher,imgs:List[np.ndarray]):
     H,W = 3000,3000
     img_num = len(imgs)
     residuals = [np.full((H,W),np.nan,dtype=np.float32) for i in range(img_num)]
+    counts = [np.full((H,W),0,dtype=np.float32) for i in range(img_num)]
     for i in range(img_num-1):
         for j in range(i+1,img_num):
             print(f"matching img{i+1} and img{j+1}")
@@ -157,8 +158,16 @@ def get_residuals(model:RegressionMatcher,imgs:List[np.ndarray]):
             dis = np.linalg.norm(kpts_i - kpts_j,axis=-1)
             idx_i = np.round(kpts_i).astype(int)
             idx_j = np.round(kpts_j).astype(int)
-            residuals[i][idx_i[:,0],idx_i[:,1]] = np.fmin(residuals[i][idx_i[:,0],idx_i[:,1]],dis)
-            residuals[j][idx_j[:,0],idx_j[:,1]] = np.fmin(residuals[j][idx_j[:,0],idx_j[:,1]],dis)
+            residuals[i][idx_i[:,0],idx_i[:,1]] += dis
+            residuals[j][idx_j[:,0],idx_j[:,1]] += dis
+            counts[i][idx_i[:,0],idx_i[:,1]] += 1.
+            counts[j][idx_j[:,0],idx_j[:,1]] += 1.
+            # residuals[i][idx_i[:,0],idx_i[:,1]] = np.fmin(residuals[i][idx_i[:,0],idx_i[:,1]],dis)
+            # residuals[j][idx_j[:,0],idx_j[:,1]] = np.fmin(residuals[j][idx_j[:,0],idx_j[:,1]],dis)
+    for i in range(img_num):
+        count = counts[i]
+        valid_mask = count > 0
+        residuals[i][valid_mask] /= count[valid_mask]
 
     return residuals
 
